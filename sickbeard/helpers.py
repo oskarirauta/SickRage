@@ -1449,7 +1449,7 @@ def getURL(url, post_data=None, params=None, headers=None, timeout=30, session=N
     except (SocketTimeout, TypeError) as e:
         logger.log(u"Connection timed out (sockets) accessing getURL %s Error: %r" % (url, ex(e)), logger.WARNING)
         return None
-    except requests.exceptions.HTTPError as e:
+    except (requests.exceptions.HTTPError, requests.exceptions.TooManyRedirects) as e:
         logger.log(u"HTTP error in getURL %s Error: %r" % (url, ex(e)), logger.WARNING)
         return None
     except requests.exceptions.ConnectionError as e:
@@ -1506,7 +1506,7 @@ def download_file(url, filename, session=None, headers=None):
         remove_file_failed(filename)
         logger.log(u"Connection timed out (sockets) while loading download URL %s Error: %r" % (url, ex(e)), logger.WARNING)
         return None
-    except requests.exceptions.HTTPError as e:
+    except (requests.exceptions.HTTPError, requests.exceptions.TooManyRedirects) as e:
         remove_file_failed(filename)
         logger.log(u"HTTP error %r while loading download URL %s " % (ex(e), url), logger.WARNING)
         return False
@@ -1769,6 +1769,20 @@ def getTVDBFromID(indexer_id, indexer):
     else:
         return tvdb_id
 
+def get_showname_from_indexer(indexer, indexer_id, lang='en'):
+    lINDEXER_API_PARMS = sickbeard.indexerApi(indexer).api_params.copy()
+    if lang:
+        lINDEXER_API_PARMS['language'] = lang
+
+    logger.log(u"" + str(sickbeard.indexerApi(indexer).name) + ": " + repr(lINDEXER_API_PARMS))
+
+    t = sickbeard.indexerApi(indexer).indexer(**lINDEXER_API_PARMS)
+    s = t[int(indexer_id)]
+    
+    if hasattr(s,'data'):
+        return s.data.get('seriesname')
+    
+    return None
 
 def is_ip_private(ip):
     priv_lo = re.compile(r"^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$")

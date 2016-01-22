@@ -2330,10 +2330,15 @@ var SICKRAGE = {
                 var forSeason = $(this).attr('data-for-season');
                 var forEpisode = $(this).attr('data-for-episode');
                 var m = $(this).val().match(/^(\d+)x(\d+)$/i);
+                var firstSeason = $(this).val().match(/^(\d+)$/i);
                 var sceneSeason = null, sceneEpisode = null;
                 if (m) {
                     sceneSeason = m[1];
                     sceneEpisode = m[2];
+                } else if (firstSeason) {
+                	// For example when '5' is filled in instead of '1x5', asume it's the first season
+                	sceneSeason = '1';
+                	sceneEpisode = firstSeason[1];
                 }
                 setEpisodeSceneNumbering(forSeason, forEpisode, sceneSeason, sceneEpisode);
             });
@@ -2386,6 +2391,22 @@ var SICKRAGE = {
             .on('shown.bs.popover', function (){
                 $.tablesorter.columnSelector.attachTo($("#showTable, #animeTable"), '#popover-target');
             });
+            
+            // Moved and rewritten this from displayShow. This changes the button when clicked for collapsing/expanding the 
+            // Season to Show Episodes or Hide Episodes.
+            $(function() {
+            	$('.collapse.toggle').on('hide.bs.collapse', function () {
+            		var reg = /collapseSeason-([0-9]+)/g;
+            		var result = reg.exec(this.id);
+                    $('#showseason-' + result[1]).text('Show Episodes');
+                });
+                $('.collapse.toggle').on('show.bs.collapse', function () {
+                	var reg = /collapseSeason-([0-9]+)/g;
+            		var result = reg.exec(this.id);
+                    $('#showseason-' + result[1]).text('Hide Episodes');
+                });
+            });
+
         },
         postProcess: function() {
             $('#episodeDir').fileBrowser({ title: 'Select Unprocessed Episode Folder', key: 'postprocessPath' });

@@ -1,9 +1,7 @@
 # coding=utf-8
 # Author: Nic Wolfe <nic@wolfeden.ca>
-# URL: http://code.google.com/p/sickbeard/
-#
 # Rewrite: Dustyn Gibson (miigotu) <miigotu@gmail.com>
-# URL: http://sickrage.github.io
+# URL: https://sickrage.github.io
 #
 # This file is part of SickRage.
 #
@@ -20,20 +18,20 @@
 # You should have received a copy of the GNU General Public License
 # along with SickRage. If not, see <http://www.gnu.org/licenses/>.
 
-import os
-import time
 import datetime
+import os
 import posixpath  # Must use posixpath
+import time
 from urllib import urlencode
 
 import sickbeard
-from sickbeard import logger
-from sickbeard import tvcache
-from sickrage.helper.encoding import ek, ss
+from sickbeard import logger, tvcache
 from sickbeard.bs4_parser import BS4Parser
-from sickrage.helper.common import try_int, convert_size
-from sickrage.providers.nzb.NZBProvider import NZBProvider
 from sickbeard.common import cpu_presets
+
+from sickrage.helper.common import convert_size, try_int
+from sickrage.helper.encoding import ek, ss
+from sickrage.providers.nzb.NZBProvider import NZBProvider
 
 
 class NewznabProvider(NZBProvider):  # pylint: disable=too-many-instance-attributes, too-many-arguments
@@ -43,6 +41,7 @@ class NewznabProvider(NZBProvider):  # pylint: disable=too-many-instance-attribu
     Tested with: newznab, nzedb, spotweb, torznab
     """
     # pylint: disable=too-many-arguments
+
     def __init__(self, name, url, key='0', catIDs='5030,5040', search_mode='eponly',
                  search_fallback=False, enable_daily=True, enable_backlog=False):
 
@@ -66,7 +65,7 @@ class NewznabProvider(NZBProvider):  # pylint: disable=too-many-instance-attribu
 
         self.default = False
 
-        self.cache = NewznabCache(self)
+        self.cache = tvcache.TVCache(self, min_time=30)  # only poll newznab providers every 30 minutes max
 
     def configStr(self):
         """
@@ -78,7 +77,7 @@ class NewznabProvider(NZBProvider):  # pylint: disable=too-many-instance-attribu
 
     @staticmethod
     def get_providers_list(data):
-        default_list = [NewznabProvider._make_provider(x) for x in NewznabProvider._get_default_providers().split('!!!')]
+        default_list = [x for x in [NewznabProvider._make_provider(x) for x in NewznabProvider._get_default_providers().split('!!!')] if x]
         providers_list = [x for x in [NewznabProvider._make_provider(x) for x in data.split('!!!')] if x]
         seen_values = set()
         providers_set = []
@@ -109,6 +108,7 @@ class NewznabProvider(NZBProvider):  # pylint: disable=too-many-instance-attribu
                 providers_dict[default.name].search_fallback = default.search_fallback
                 providers_dict[default.name].enable_daily = default.enable_daily
                 providers_dict[default.name].enable_backlog = default.enable_backlog
+                providers_dict[default.name].catIDs = default.catIDs
 
         return [x for x in providers_list if x]
 
@@ -220,11 +220,11 @@ class NewznabProvider(NZBProvider):  # pylint: disable=too-many-instance-attribu
             if len(values) == 9:
                 name, url, key, category_ids, enabled, search_mode, search_fallback, enable_daily, enable_backlog = values
             else:
-                category_ids = values[3]
-                enabled = values[4]
-                key = values[2]
                 name = values[0]
                 url = values[1]
+                key = values[2]
+                category_ids = values[3]
+                enabled = values[4]
         except ValueError:
             logger.log(u'Skipping Newznab provider string: \'%s\', incorrect format' % config, logger.ERROR)
             return None
@@ -252,7 +252,7 @@ class NewznabProvider(NZBProvider):  # pylint: disable=too-many-instance-attribu
                 "t": "tvsearch",
                 "limit": 100,
                 "offset": 0,
-                "cat": self.catIDs.strip(', ')
+                "cat": self.catIDs.strip(', ') or '5030,5040'
             }
             if self.needs_auth and self.key:
                 search_params['apikey'] = self.key
@@ -282,9 +282,9 @@ class NewznabProvider(NZBProvider):  # pylint: disable=too-many-instance-attribu
                 if mode != 'RSS':
                     logger.log(u"Search string: %s " % search_string, logger.DEBUG)
 
-                search_params['q'] = search_string
-                if mode == 'RSS':
-                    search_params.pop('q', None)
+                # search_params['q'] = search_string
+                # if mode == 'RSS':
+                #     search_params.pop('q', None)
 
                 search_url = posixpath.join(self.url, 'api?') + urlencode(search_params)
                 logger.log(u"Search URL: %s" % search_url, logger.DEBUG)
@@ -292,11 +292,11 @@ class NewznabProvider(NZBProvider):  # pylint: disable=too-many-instance-attribu
                 time.sleep(cpu_presets[sickbeard.CPU_PRESET])
                 data = self.get_url(search_url)
                 if not data:
-                    continue
+                    break
 
                 with BS4Parser(data, 'html5lib') as html:
                     if not self._checkAuthFromData(html):
-                        return results
+                        break
 
                     try:
                         torznab = 'xmlns:torznab' in html.rss.attrs
@@ -327,6 +327,10 @@ class NewznabProvider(NZBProvider):  # pylint: disable=too-many-instance-attribu
                         except StandardError:
                             continue
 
+                # Since we arent using the search string,
+                # break out of the search string loop
+                break
+
             if torznab:
                 results.sort(key=lambda d: try_int(d.get('seeders', 0)), reverse=True)
             results += items
@@ -339,16 +343,3 @@ class NewznabProvider(NZBProvider):  # pylint: disable=too-many-instance-attribu
         Returns int size or -1
         """
         return try_int(item.get('size', -1), -1)
-
-
-class NewznabCache(tvcache.TVCache):
-    def __init__(self, provider_obj):
-
-        tvcache.TVCache.__init__(self, provider_obj)
-
-        # only poll newznab providers every 30 minutes
-        self.minTime = 30
-
-    def _getRSSData(self):
-        search_strings = {'RSS': ['']}
-        return {'entries': self.provider.search(search_strings)}
