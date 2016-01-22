@@ -159,7 +159,7 @@ class DailySearchQueueItem(generic_queue.QueueItem):
 
 
 class ManualSearchQueueItem(generic_queue.QueueItem):
-    def __init__(self, show, segment, downCurQuality=False):
+    def __init__(self, show, segment, downCurQuality=False, manualSelect=False):
         generic_queue.QueueItem.__init__(self, u'Manual Search', MANUAL_SEARCH)
         self.priority = generic_queue.QueuePriorities.HIGH
         self.name = 'MANUAL-' + str(show.indexerid)
@@ -168,6 +168,8 @@ class ManualSearchQueueItem(generic_queue.QueueItem):
         self.segment = segment
         self.started = None
         self.downCurQuality = downCurQuality
+        self.manualSelect = manualSelect
+        self.results = None
 
     def run(self):
         generic_queue.QueueItem.run(self)
@@ -176,12 +178,16 @@ class ManualSearchQueueItem(generic_queue.QueueItem):
             logger.log(u"Beginning manual search for: [" + self.segment.prettyName() + "]")
             self.started = True
 
-            searchResult = search.searchProviders(self.show, [self.segment], True, self.downCurQuality)
+            searchResult = search.searchProviders(self.show, [self.segment], True, self.downCurQuality, False)
 
             if searchResult:
-                # just use the first result for now
-                logger.log(u"Downloading " + searchResult[0].name + " from " + searchResult[0].provider.name)
-                self.success = search.snatchEpisode(searchResult[0])
+                if self.manualSelect:
+                    logger.log(u"Manual: dont download " + searchResult[0].name + " from " + searchResult[0].provider.name)
+                    self.results = searchResult
+                else:
+                    # just use the first result for now
+                    logger.log(u"Downloading " + searchResult[0].name + " from " + searchResult[0].provider.name)
+                    self.success = search.snatchEpisode(searchResult[0])
 
                 # give the CPU a break
                 time.sleep(common.cpu_presets[sickbeard.CPU_PRESET])
@@ -219,7 +225,7 @@ class BacklogQueueItem(generic_queue.QueueItem):
         if not self.show.paused:
             try:
                 logger.log(u"Beginning backlog search for: [" + self.show.name + "]")
-                searchResult = search.searchProviders(self.show, self.segment, False)
+                searchResult = search.searchProviders(self.show, self.segment, False, False)
 
                 if searchResult:
                     for result in searchResult:
@@ -269,7 +275,7 @@ class FailedQueueItem(generic_queue.QueueItem):
 
             # If it is wanted, self.downCurQuality doesnt matter
             # if it isnt wanted, we need to make sure to not overwrite the existing ep that we reverted to!
-            searchResult = search.searchProviders(self.show, self.segment, True, False)
+            searchResult = search.searchProviders(self.show, self.segment, True, False, False)
 
             if searchResult:
                 for result in searchResult:

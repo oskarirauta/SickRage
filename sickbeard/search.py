@@ -439,7 +439,7 @@ def searchForNeededEpisodes():
     return foundResults.values()
 
 
-def searchProviders(show, episodes, manualSearch=False, downCurQuality=False):
+def searchProviders(show, episodes, manualSearch=False, downCurQuality=False, manualSelect=False):
     """
     Walk providers for information on shows
 
@@ -447,6 +447,7 @@ def searchProviders(show, episodes, manualSearch=False, downCurQuality=False):
     :param episodes: Episodes we hope to find
     :param manualSearch: Boolean, is this a manual search?
     :param downCurQuality: Boolean, should we re-download currently available quality file
+    :param manualSelect: Boolean, should we choose what to download?
     :return: results for search
     """
     foundResults = {}
@@ -479,7 +480,7 @@ def searchProviders(show, episodes, manualSearch=False, downCurQuality=False):
         search_mode = curProvider.search_mode
 
         # Always search for episode when manually searching when in sponly
-        if search_mode == 'sponly' and manualSearch is True:
+        if search_mode == 'sponly' and (manualSearch is True or manualSelect is True):
             search_mode = 'eponly'
 
         while True:
