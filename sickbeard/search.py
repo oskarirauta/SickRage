@@ -494,7 +494,7 @@ def searchProviders(show, episodes, manualSearch=False, downCurQuality=False, ma
                 logger.log(u"Performing season pack search for " + show.name)
 
             try:
-                searchResults = curProvider.find_search_results(show, episodes, search_mode, manualSearch, downCurQuality)
+                searchResults = curProvider.find_search_results(show, episodes, search_mode, manualSearch, downCurQuality, manualSelect)
             except AuthException as e:
                 logger.log(u"Authentication error: " + ex(e), logger.ERROR)
                 break
@@ -523,6 +523,16 @@ def searchProviders(show, episodes, manualSearch=False, downCurQuality=False, ma
             else:
                 logger.log(u"Fallback season pack search initiate", logger.DEBUG)
                 search_mode = 'sponly'
+
+        # Update the cache if a manual search is being runned
+        # We would update this to insert backlog results as well
+        if manualSelect is True:
+            logger.log(u"Manual:update cache.", logger.DEBUG)
+            for item in searchResults[curEp]:
+                 logger.log(u"Item : %s" % item.name, logger.DEBUG)
+            for curProvider in providers:
+                threading.currentThread().name = origThreadName + " :: [" + curProvider.name + "]"
+                curProvider.cache.updateCache(searchResults[curEp])
 
         # skip to next provider if we have no results to process
         if not len(foundResults[curProvider.name]):

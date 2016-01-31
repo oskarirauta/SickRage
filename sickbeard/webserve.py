@@ -1358,7 +1358,39 @@ class Home(WebRoot):
             action="displayShow"
         )
 
-    def manualSelect(self, show=None):
+    def manualSnatchSelect(self, show=None, season=None, episode=None, url=None, downCurQuality=None, quality=None, release_group=None, provider=None, name=None):
+        try:
+            show = int(show)  # fails if show id ends in a period SickRage/sickrage-issues#65
+            showObj = Show.find(sickbeard.showList, show)
+        except (ValueError, TypeError):
+            return self._genericMessage("Error", "Invalid show ID: %s" % str(show))
+
+        if showObj is None:
+            return self._genericMessage("Error", "Show not in show list")
+
+        if url is None or quality is None or release_group is None or provider is None or name is None:
+            return self._genericMessage("Error", "URL not valid")
+
+        # retrieve the episode object and fail if we can't get one
+        ep_obj = self._getEpisode(show, season, episode)
+        if isinstance(ep_obj, str):
+            return json.dumps({'result': 'failure'})
+
+        # make a queue item for it and put it on the queue
+        ep_queue_item = search_queue.ManualSelectQueueItem(ep_obj.show, ep_obj, season, episode, url, quality, release_group, provider, name)
+
+        sickbeard.searchQueueScheduler.action.add_item(ep_queue_item)
+
+        if not ep_queue_item.started and ep_queue_item.success is None:
+            return json.dumps(
+                {'result': 'success'})  # I Actually want to call it queued, because the search hasnt been started yet!
+        if ep_queue_item.started and ep_queue_item.success is None:
+            return json.dumps({'result': 'success'})
+        else:
+            return json.dumps({'result': 'failure'})
+
+
+    def manualSelect(self, show=None, season=None, episode=None):
         # todo: add more comprehensive show validation
         try:
             show = int(show)  # fails if show id ends in a period SickRage/sickrage-issues#65
@@ -1369,18 +1401,20 @@ class Home(WebRoot):
         if showObj is None:
             return self._genericMessage("Error", "Show not in show list")
 
-        main_db_con = db.DBConnection()
-        seasonResults = main_db_con.select(
-            "SELECT DISTINCT season FROM tv_episodes WHERE showid = ? ORDER BY season DESC",
-            [showObj.indexerid]
-        )
+        main_db_con = db.DBConnection('cache.db')
+        sql_results = sql_return = {}
 
-        min_season = 0 if sickbeard.DISPLAY_SHOW_SPECIALS else 1
+        providers = [x for x in sickbeard.providers.sortedProviderList(sickbeard.RANDOMIZE_PROVIDERS) if x.is_active() and x.enable_backlog]
+        for curProvider in providers:
+            sql_return = main_db_con.select(
+            "SELECT * FROM " + curProvider.name + " WHERE episodes = ? AND season = ? AND indexerid = ?",
+            ["|" + episode + "|", season, show]
+            )
+            if sql_return:
+                sql_results.update({curProvider.name: sql_return})
 
-        sql_results = main_db_con.select(
-            "SELECT * FROM tv_episodes WHERE showid = ? and season >= ? ORDER BY season DESC, episode DESC",
-            [showObj.indexerid, min_season]
-        )
+        if not sql_return:
+            return self._genericMessage("Error", "No release in cache")
 
         t = PageTemplate(rh=self, filename="manualSelect.mako")
         submenu = [{'title': 'Edit', 'path': 'home/editShow?show=%d' % showObj.indexerid, 'icon': 'ui-icon ui-icon-pencil'}]
@@ -1431,24 +1465,6 @@ class Home(WebRoot):
                         showObj) and showObj.subtitles:
                     submenu.append({'title': 'Download Subtitles', 'path': 'home/subtitleShow?show=%d' % showObj.indexerid, 'icon': 'ui-icon ui-icon-comment'})
 
-        epCounts = {
-            Overview.SKIPPED: 0,
-            Overview.WANTED: 0,
-            Overview.QUAL: 0,
-            Overview.GOOD: 0,
-            Overview.UNAIRED: 0,
-            Overview.SNATCHED: 0,
-            Overview.SNATCHED_PROPER: 0,
-            Overview.SNATCHED_BEST: 0
-        }
-        epCats = {}
-
-        for curResult in sql_results:
-            curEpCat = showObj.getOverview(curResult["status"])
-            if curEpCat:
-                epCats[str(curResult["season"]) + "x" + str(curResult["episode"])] = curEpCat
-                epCounts[curEpCat] += 1
-
         def titler(x):
             return (helpers.remove_article(x), x)[not x or sickbeard.SORT_ARTICLE]
 
@@ -1491,9 +1507,9 @@ class Home(WebRoot):
 
         return t.render(
             submenu=submenu, showLoc=showLoc, show_message=show_message,
-            show=showObj, sql_results=sql_results, seasonResults=seasonResults,
-            sortedShowLists=sortedShowLists, bwl=bwl, epCounts=epCounts,
-            epCats=epCats, all_scene_exceptions=showObj.exceptions,
+            show=showObj, sql_results=sql_results, episode=episode,
+            sortedShowLists=sortedShowLists, bwl=bwl, season=season,
+            all_scene_exceptions=showObj.exceptions,
             scene_numbering=get_scene_numbering_for_show(indexerid, indexer),
             xem_numbering=get_xem_numbering_for_show(indexerid, indexer),
             scene_absolute_numbering=get_scene_absolute_numbering_for_show(indexerid, indexer),
@@ -2111,11 +2127,11 @@ class Home(WebRoot):
 
         if manualSelect is not None:
             time.sleep(30)
-        # TODO: while thread is not finished
+        # TODO: wait while thread is not finished
 
         if ep_queue_item.results is not None:
             logger.log(u"We should redirect", logger.INFO)
-            return self.redirect('/home/manualSelect?show=' + show)
+            return self.redirect('/home/manualSelect?show=' + show + '&season=' + season + '&episode=' + episode)
         else:
             logger.log(u"We should not redirect", logger.INFO)
 
@@ -2139,7 +2155,7 @@ class Home(WebRoot):
                 logger.log(u'No Show Object found for show with indexerID: ' + str(searchThread.show.indexerid), logger.ERROR)
                 return results
 
-            if isinstance(searchThread, sickbeard.search_queue.ManualSearchQueueItem):
+            if isinstance(searchThread, (sickbeard.search_queue.ManualSearchQueueItem, sickbeard.search_queue.ManualSelectQueueItem)):
                 results.append({'show': searchThread.show.indexerid,
                                 'episode': searchThread.segment.episode,
                                 'episodeindexid': searchThread.segment.indexerid,
@@ -2187,11 +2203,11 @@ class Home(WebRoot):
                 if not str(searchThread.show.indexerid) == show:
                     continue
 
-            if isinstance(searchThread, sickbeard.search_queue.ManualSearchQueueItem):
+            if isinstance(searchThread, (sickbeard.search_queue.ManualSearchQueueItem, sickbeard.search_queue.ManualSelectQueueItem)):
                 if not [x for x in episodes if x['episodeindexid'] == searchThread.segment.indexerid]:
                     episodes += getEpisodes(searchThread, searchstatus)
             else:
-                # ## These are only Failed Downloads/Retry SearchThreadItems.. lets loop through the segement/episodes
+                # ## These are only Failed Downloads/Retry SearchThreadItems.. lets loop through the segment/episodes
                 if not [i for i, j in zip(searchThread.segment, episodes) if i.indexerid == j['episodeindexid']]:
                     episodes += getEpisodes(searchThread, searchstatus)
 

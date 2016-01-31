@@ -28,6 +28,8 @@ from sickbeard import logger
 from sickbeard import generic_queue
 from sickbeard import search, failed_history, history
 from sickbeard import ui
+from sickbeard import providers
+from sickrage.providers.GenericProvider import GenericProvider
 
 search_queue_lock = threading.Lock()
 
@@ -118,7 +120,7 @@ class SearchQueue(generic_queue.GenericQueue):
         elif isinstance(item, BacklogQueueItem) and not self.is_in_queue(item.show, item.segment):
             # backlog searches
             generic_queue.GenericQueue.add_item(self, item)
-        elif isinstance(item, (ManualSearchQueueItem, FailedQueueItem)) and not self.is_ep_in_queue(item.segment):
+        elif isinstance(item, (ManualSearchQueueItem, ManualSelectQueueItem, FailedQueueItem)) and not self.is_ep_in_queue(item.segment):
             # manual and failed searches
             generic_queue.GenericQueue.add_item(self, item)
         else:
@@ -178,7 +180,7 @@ class ManualSearchQueueItem(generic_queue.QueueItem):
             logger.log(u"Beginning manual search for: [" + self.segment.prettyName() + "]")
             self.started = True
 
-            searchResult = search.searchProviders(self.show, [self.segment], True, self.downCurQuality, False)
+            searchResult = search.searchProviders(self.show, [self.segment], True, self.downCurQuality, self.manualSelect)
 
             if searchResult:
                 if self.manualSelect:
@@ -200,6 +202,67 @@ class ManualSearchQueueItem(generic_queue.QueueItem):
 
         except Exception:
             logger.log(traceback.format_exc(), logger.DEBUG)
+
+        # ## Keep a list with the 100 last executed searches
+        fifo(MANUAL_SEARCH_HISTORY, self, MANUAL_SEARCH_HISTORY_SIZE)
+
+        if self.success is None:
+            self.success = False
+
+        self.finish()
+
+class ManualSelectQueueItem(generic_queue.QueueItem):
+    def __init__(self, show, segment, season, episode, url, quality, release_group, provider, search_name):
+        generic_queue.QueueItem.__init__(self, u'Manual Search', MANUAL_SEARCH)
+        self.priority = generic_queue.QueuePriorities.HIGH
+        self.search_name = search_name
+        self.success = None
+        self.show = show
+        self.started = None
+        self.results = None
+        self.provider = providers.getProviderClass(GenericProvider.make_id(provider))
+        self.season = season
+        self.episode = episode
+        self.quality = int(quality)
+        self.release_group = release_group
+        self.url = url
+        self.segment = segment
+
+    def run(self):
+        generic_queue.QueueItem.run(self)
+
+        try:
+            logger.log(u"Beginning manual search for: [" + self.segment.prettyName() + "]")
+            self.started = True
+
+            # Build a valid result
+            # get the episode object
+            epObj = self.show.getEpisode(self.season, self.episode)
+
+            # make the result object, maybe some attributes can be removed
+            result = self.provider.get_result([epObj])
+            result.indexerid = self.show.indexerid
+            result.indexer = self.show.indexer
+            result.show = self.show
+            result.url = self.url
+            result.name = self.search_name
+            result.quality = self.quality
+            result.release_group = self.release_group
+            result.version = None
+            result.content = None
+
+            logger.log(u"Downloading " + result.name + " from " + result.provider.name)
+            self.success = search.snatchEpisode(result)
+
+            # give the CPU a break
+            time.sleep(common.cpu_presets[sickbeard.CPU_PRESET])
+
+            logger.log(u"Unable to find a download for: [" + self.segment.prettyName() + "]")
+
+        except Exception:
+            logger.log(traceback.format_exc(), logger.DEBUG)
+            ui.notifications.message('No downloads were found',
+                                         "Couldn't find a download for <i>%s</i>" % self.segment.prettyName())
 
         # ## Keep a list with the 100 last executed searches
         fifo(MANUAL_SEARCH_HISTORY, self, MANUAL_SEARCH_HISTORY_SIZE)

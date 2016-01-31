@@ -91,7 +91,8 @@ class TVCache(object):
     def _clearCache(self):
         if self.shouldClearCache():
             cache_db_con = self._getDB()
-            cache_db_con.action("DELETE FROM [" + self.providerID + "] WHERE 1")
+            #cache_db_con.action("DELETE FROM [" + self.providerID + "] WHERE 1")
+            # TODO
 
     def _get_title_and_url(self, item):
         return self.provider._get_title_and_url(item)
@@ -105,34 +106,45 @@ class TVCache(object):
     def _checkItemAuth(self, title, url):
         return True
 
-    def updateCache(self):
+    def updateCache(self, manualData = None):
         # check if we should update
         if not self.shouldUpdate():
             return
 
-        try:
-            data = self._getRSSData()
-            if self._checkAuth(data):
-                # clear cache
-                self._clearCache()
+        if manualData is not None:
+            cl = []
+            for item in manualData:
+                ci = self._addCacheEntry(item.name, item.url)
+                if ci is not None:
+                    cl.append(ci)
 
-                # set updated
-                self.setLastUpdate()
-
-                cl = []
-                for item in data['entries'] or []:
-                    ci = self._parseItem(item)
-                    if ci is not None:
-                        cl.append(ci)
-
-                if len(cl) > 0:
+            if len(cl) > 0:
                     cache_db_con = self._getDB()
-                    cache_db_con.mass_action(cl)
+                    cache_db_con.mass_action(cl, True)
+        else:
+            try:
+                data = self._getRSSData()
+                if self._checkAuth(data):
+                    # clear cache
+                    self._clearCache()
 
-        except AuthException as e:
-            logger.log(u"Authentication error: " + ex(e), logger.ERROR)
-        except Exception as e:
-            logger.log(u"Error while searching " + self.provider.name + ", skipping: " + repr(e), logger.DEBUG)
+                    # set updated
+                    self.setLastUpdate()
+
+                    cl = []
+                    for item in data['entries'] or []:
+                        ci = self._parseItem(item)
+                        if ci is not None:
+                            cl.append(ci)
+
+                    if len(cl) > 0:
+                        cache_db_con = self._getDB()
+                        cache_db_con.mass_action(cl)
+
+            except AuthException as e:
+                logger.log(u"Authentication error: " + ex(e), logger.ERROR)
+            except Exception as e:
+                logger.log(u"Error while searching " + self.provider.name + ", skipping: " + repr(e), logger.DEBUG)
 
     def getRSSFeed(self, url):
         handlers = []
@@ -225,18 +237,18 @@ class TVCache(object):
 
     def shouldUpdate(self):
         # if we've updated recently then skip the update
-        if datetime.datetime.today() - self.lastUpdate < datetime.timedelta(minutes=self.minTime):
-            logger.log(u"Last update was too soon, using old cache: " + str(self.lastUpdate) + ". Updated less then " + str(self.minTime) + " minutes ago", logger.DEBUG)
-            return False
+        #if datetime.datetime.today() - self.lastUpdate < datetime.timedelta(minutes=self.minTime):
+            #logger.log(u"Last update was too soon, using old cache: " + str(self.lastUpdate) + ". Updated less then " + str(self.minTime) + " minutes ago", logger.DEBUG)
+            #return False
 
         return True
 
     def shouldClearCache(self):
         # if daily search hasn't used our previous results yet then don't clear the cache
-        if self.lastUpdate > self.lastSearch:
-            return False
+        #if self.lastUpdate > self.lastSearch:
+            #return False
 
-        return True
+        return False
 
     def _addCacheEntry(self, name, url, parse_result=None, indexer_id=0):
 
