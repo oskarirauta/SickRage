@@ -48,13 +48,14 @@ from sickbeard.scene_numbering import get_scene_numbering, set_scene_numbering, 
 from sickbeard.webapi import function_mapper
 
 from sickbeard.imdbPopular import imdb_popular
+from helpers import get_showname_from_indexer
 
 from dateutil import tz
 from unrar2 import RarFile
 import adba
 from libtrakt import TraktAPI
 from libtrakt.exceptions import traktException
-from sickrage.helper.common import sanitize_filename, try_int
+from sickrage.helper.common import sanitize_filename, try_int, episode_num
 from sickrage.helper.encoding import ek, ss
 from sickrage.helper.exceptions import CantRefreshShowException, CantUpdateShowException, ex
 from sickrage.helper.exceptions import MultipleShowObjectsException, NoNFOException, ShowDirectoryNotFoundException
@@ -109,7 +110,7 @@ def get_lookup():
         use_strict = sickbeard.BRANCH and sickbeard.BRANCH != 'master'
         mako_lookup = TemplateLookup(directories=[mako_path],
                                      module_directory=mako_cache,
-                                    #  format_exceptions=True,
+                                     #  format_exceptions=True,
                                      strict_undefined=use_strict,
                                      filesystem_checks=True)
     return mako_lookup
@@ -170,6 +171,7 @@ class PageTemplate(MakoTemplate):
             kwargs['header'] = 'Mako Error'
             kwargs['backtrace'] = RichTraceback()
             return get_lookup().get_template('500.mako').render_unicode(*args, **kwargs)
+
 
 class BaseHandler(RequestHandler):
     startTime = 0.
@@ -782,7 +784,7 @@ class Home(WebRoot):
 
         host = config.clean_url(host)
 
-        connection, accesMsg = sab.getSabAccesMethod(host, username, password, apikey)
+        connection, accesMsg = sab.getSabAccesMethod(host)
         if connection:
             authed, authMsg = sab.testAuthentication(host, username, password, apikey)  # @UnusedVariable
             if authed:
@@ -1150,7 +1152,8 @@ class Home(WebRoot):
 
         t = PageTemplate(rh=self, filename="restart.mako")
 
-        return t.render(title="Home", header="Restarting SickRage", topmenu="system")
+        return t.render(title="Home", header="Restarting SickRage", topmenu="system",
+                        controller="home", action="restart")
 
     def updateCheck(self, pid=None):
         if str(pid) != str(sickbeard.PID):
@@ -1178,7 +1181,8 @@ class Home(WebRoot):
                 sickbeard.events.put(sickbeard.events.SystemEvent.RESTART)
 
                 t = PageTemplate(rh=self, filename="restart.mako")
-                return t.render(title="Home", header="Restarting SickRage", topmenu="home")
+                return t.render(title="Home", header="Restarting SickRage", topmenu="home",
+                                controller="home", action="restart")
             else:
                 return self._genericMessage("Update Failed",
                                             "Update wasn't successful, not restarting. Check your log for more information.")
@@ -1226,7 +1230,7 @@ class Home(WebRoot):
 
         main_db_con = db.DBConnection()
         seasonResults = main_db_con.select(
-            "SELECT DISTINCT season FROM tv_episodes WHERE showid = ? ORDER BY season DESC",
+            "SELECT DISTINCT season FROM tv_episodes WHERE showid = ? AND season IS NOT NULL ORDER BY season DESC",
             [showObj.indexerid]
         )
 
@@ -2092,8 +2096,10 @@ class Home(WebRoot):
             if not ep_result:
                 logger.log(u"Unable to find an episode for " + curEp + ", skipping", logger.WARNING)
                 continue
-            related_eps_result = main_db_con.select("SELECT season, episode FROM tv_episodes WHERE location = ? AND episode != ?",
-                                             [ep_result[0]["location"], epInfo[1]])
+            related_eps_result = main_db_con.select(
+                "SELECT season, episode FROM tv_episodes WHERE location = ? AND episode != ?",
+                [ep_result[0]["location"], epInfo[1]]
+            )
 
             root_ep_obj = show_obj.getEpisode(epInfo[0], epInfo[1])
             root_ep_obj.relatedEps = []
@@ -2153,15 +2159,16 @@ class Home(WebRoot):
                 return results
 
             if isinstance(searchThread, (sickbeard.search_queue.ManualSearchQueueItem, sickbeard.search_queue.ManualSelectQueueItem)):
-                results.append({'show': searchThread.show.indexerid,
-                                'episode': searchThread.segment.episode,
-                                'episodeindexid': searchThread.segment.indexerid,
-                                'season': searchThread.segment.season,
-                                'searchstatus': searchstatus,
-                                'status': statusStrings[searchThread.segment.status],
-                                'quality': self.getQualityClass(searchThread.segment),
-                                'overview': Overview.overviewStrings[showObj.getOverview(searchThread.segment.status)]
-                                })
+                results.append({
+                    'show': searchThread.show.indexerid,
+                    'episode': searchThread.segment.episode,
+                    'episodeindexid': searchThread.segment.indexerid,
+                    'season': searchThread.segment.season,
+                    'searchstatus': searchstatus,
+                    'status': statusStrings[searchThread.segment.status],
+                    'quality': self.getQualityClass(searchThread.segment),
+                    'overview': Overview.overviewStrings[showObj.getOverview(searchThread.segment.status)]
+                })
             else:
                 for epObj in searchThread.segment:
                     results.append({'show': epObj.show.indexerid,
@@ -2808,7 +2815,14 @@ class HomeAddShows(Home):
                         header='Existing Show', topmenu="home",
                         controller="addShows", action="addExistingShow")
 
-    def addShowByID(self, indexer_id, show_name, indexer="TVDB"):
+    def addShowByID(self, indexer_id, show_name, indexer="TVDB", which_series=None,
+                    indexer_lang=None, root_dir=None, default_status=None,
+                    quality_preset=None, any_qualities=None, best_qualities=None,
+                    flatten_folders=None, subtitles=None, full_show_path=None,
+                    other_shows=None, skip_show=None, provided_indexer=None,
+                    anime=None, scene=None, blacklist=None, whitelist=None,
+                    default_status_after=None, default_flatten_folders=None,
+                    configure_show_options=None):
 
         if indexer != "TVDB":
             tvdb_id = helpers.getTVDBFromID(indexer_id, indexer.upper())
@@ -2820,41 +2834,81 @@ class HomeAddShows(Home):
                 )
                 return
 
-            indexer_id = tvdb_id
+            indexer_id = try_int(tvdb_id, None)
 
         if Show.find(sickbeard.showList, int(indexer_id)):
             return
 
-        if sickbeard.ROOT_DIRS:
-            root_dirs = sickbeard.ROOT_DIRS.split('|')
-            location = root_dirs[int(root_dirs[0]) + 1]
+        # Sanitize the paramater anyQualities and bestQualities. As these would normally be passed as lists
+        if any_qualities:
+            any_qualities = any_qualities.split(',')
         else:
-            location = None
+            any_qualities = []
+
+        if best_qualities:
+            best_qualities = best_qualities.split(',')
+        else:
+            best_qualities = []
+
+        # If configure_show_options is enabled let's use the provided settings
+        configure_show_options = config.checkbox_to_value(configure_show_options)
+
+        if configure_show_options:
+            # prepare the inputs for passing along
+            scene = config.checkbox_to_value(scene)
+            anime = config.checkbox_to_value(anime)
+            flatten_folders = config.checkbox_to_value(flatten_folders)
+            subtitles = config.checkbox_to_value(subtitles)
+
+            if whitelist:
+                whitelist = short_group_names(whitelist)
+            if blacklist:
+                blacklist = short_group_names(blacklist)
+
+            if not any_qualities:
+                any_qualities = []
+
+            if not best_qualities or try_int(quality_preset, None):
+                best_qualities = []
+
+            if not isinstance(any_qualities, list):
+                any_qualities = [any_qualities]
+
+            if not isinstance(best_qualities, list):
+                best_qualities = [best_qualities]
+
+            quality = Quality.combineQualities([int(q) for q in any_qualities], [int(q) for q in best_qualities])
+
+            location = root_dir
+
+        else:
+            default_status = sickbeard.STATUS_DEFAULT
+            quality = sickbeard.QUALITY_DEFAULT
+            flatten_folders = sickbeard.FLATTEN_FOLDERS_DEFAULT
+            subtitles = sickbeard.SUBTITLES_DEFAULT
+            anime = sickbeard.ANIME_DEFAULT
+            scene = sickbeard.SCENE_DEFAULT
+            default_status_after = sickbeard.STATUS_DEFAULT_AFTER
+
+            if sickbeard.ROOT_DIRS:
+                root_dirs = sickbeard.ROOT_DIRS.split('|')
+                location = root_dirs[int(root_dirs[0]) + 1]
+            else:
+                location = None
 
         if not location:
             logger.log(u"There was an error creating the show, no root directory setting found")
             return "No root directories setup, please go back and add one."
 
-        show_dir = ek(os.path.join, location, sanitize_filename(show_name))
-        dir_exists = helpers.makeDir(show_dir)
-        if not dir_exists:
-            logger.log(u"Unable to create the folder " + show_dir + ", can't add the show")
-            return
+        show_name = get_showname_from_indexer(1, indexer_id)
+        show_dir = None
 
-        helpers.chmodAsParent(show_dir)
+        # add the show
+        sickbeard.showQueueScheduler.action.addShow(1, int(indexer_id), show_dir, int(default_status), quality, flatten_folders,
+                                                    indexer_lang, subtitles, anime, scene, None, blacklist, whitelist,
+                                                    int(default_status_after), root_dir=location)
 
-        sickbeard.showQueueScheduler.action.addShow(
-            1, int(indexer_id), show_dir,
-            default_status=sickbeard.STATUS_DEFAULT,
-            quality=sickbeard.QUALITY_DEFAULT,
-            flatten_folders=sickbeard.FLATTEN_FOLDERS_DEFAULT,
-            subtitles=sickbeard.SUBTITLES_DEFAULT,
-            anime=sickbeard.ANIME_DEFAULT,
-            scene=sickbeard.SCENE_DEFAULT,
-            default_status_after=sickbeard.STATUS_DEFAULT_AFTER,
-        )
-
-        ui.notifications.message('Show added', 'Adding the specified show into ' + show_dir)
+        ui.notifications.message('Show added', 'Adding the specified show {0}'.format(show_name))
 
         # done adding show
         return self.redirect('/home/')
@@ -3305,13 +3359,13 @@ class Manage(Home, WebRoot):
             epCats = {}
 
             sql_results = main_db_con.select(
-                "SELECT status, season, episode, name, airdate FROM tv_episodes WHERE tv_episodes.showid in (SELECT tv_shows.indexer_id FROM tv_shows WHERE tv_shows.indexer_id = ? AND paused = 0) ORDER BY tv_episodes.season DESC, tv_episodes.episode DESC",
+                "SELECT status, season, episode, name, airdate FROM tv_episodes WHERE tv_episodes.season IS NOT NULL AND tv_episodes.showid IN (SELECT tv_shows.indexer_id FROM tv_shows WHERE tv_shows.indexer_id = ? AND paused = 0) ORDER BY tv_episodes.season DESC, tv_episodes.episode DESC",
                 [curShow.indexerid])
 
             for curResult in sql_results:
                 curEpCat = curShow.getOverview(curResult["status"])
                 if curEpCat:
-                    epCats['S%02dE%02d' % (curResult['season'], curResult['episode'])] = curEpCat
+                    epCats[u'{ep}'.format(ep=episode_num(curResult['season'], curResult['episode']))] = curEpCat
                     epCounts[curEpCat] += 1
 
             showCounts[curShow.indexerid] = epCounts
@@ -3889,7 +3943,41 @@ class Config(WebRoot):
     def index(self):
         t = PageTemplate(rh=self, filename="config.mako")
 
-        return t.render(submenu=self.ConfigMenu(), title='SickRage Configuration', header='SickRage Configuration', topmenu="config")
+        try:
+            import pwd
+            sr_user = pwd.getpwuid(os.getuid()).pw_name
+        except ImportError:
+            try:
+                import getpass
+                sr_user = getpass.getuser()
+            except StandardError:
+                sr_user = 'Unknown'
+
+        try:
+            import locale
+            sr_locale = locale.getdefaultlocale()
+        except StandardError:
+            sr_locale = 'Unknown', 'Unknown'
+
+        try:
+            import ssl
+            ssl_version = ssl.OPENSSL_VERSION
+        except StandardError:
+            ssl_version = 'Unknown'
+
+        sr_version = ''
+        if sickbeard.VERSION_NOTIFY:
+            updater = CheckVersion().updater
+            if updater:
+                updater.need_update()
+                sr_version = updater.get_cur_version()
+
+        return t.render(
+            submenu=self.ConfigMenu(), title='SickRage Configuration',
+            header='SickRage Configuration', topmenu="config",
+            sr_user=sr_user, sr_locale=sr_locale, ssl_version=ssl_version,
+            sr_version=sr_version
+        )
 
 
 @route('/config/general(/?.*)')
@@ -4236,19 +4324,21 @@ class ConfigPostProcessing(Config):
                         header='Post Processing', topmenu='config',
                         controller="config", action="postProcessing")
 
-    def savePostProcessing(self, naming_pattern=None, naming_multi_ep=None,
-                           kodi_data=None, kodi_12plus_data=None,
+    def savePostProcessing(self, kodi_data=None, kodi_12plus_data=None,
                            mediabrowser_data=None, sony_ps3_data=None,
                            wdtv_data=None, tivo_data=None, mede8er_data=None,
                            keep_processed_dir=None, process_method=None,
                            del_rar_contents=None, process_automatically=None,
                            no_delete=None, rename_episodes=None, airdate_episodes=None,
-                           file_timestamp_timezone=None, unpack=None, move_associated_files=None,
-                           sync_files=None, postpone_if_sync_files=None, postpone_if_no_subs=None, nfo_rename=None,
-                           allowed_extensions=None, tv_download_dir=None, naming_custom_abd=None, naming_anime=None,
+                           file_timestamp_timezone=None, unpack=None,
+                           move_associated_files=None, sync_files=None,
+                           postpone_if_sync_files=None, postpone_if_no_subs=None,
+                           allowed_extensions=None, tv_download_dir=None,
                            create_missing_show_dirs=None, add_shows_wo_dir=None,
+                           extra_scripts=None, nfo_rename=None,
+                           naming_pattern=None, naming_multi_ep=None,
+                           naming_custom_abd=None, naming_anime=None,
                            naming_abd_pattern=None, naming_strip_year=None,
-                           use_failed_downloads=None, delete_failed=None, extra_scripts=None,
                            naming_custom_sports=None, naming_sports_pattern=None,
                            naming_custom_anime=None, naming_anime_pattern=None,
                            naming_anime_multi_ep=None, autopostprocesser_frequency=None):
@@ -4291,8 +4381,6 @@ class ConfigPostProcessing(Config):
         sickbeard.NAMING_CUSTOM_SPORTS = config.checkbox_to_value(naming_custom_sports)
         sickbeard.NAMING_CUSTOM_ANIME = config.checkbox_to_value(naming_custom_anime)
         sickbeard.NAMING_STRIP_YEAR = config.checkbox_to_value(naming_strip_year)
-        sickbeard.USE_FAILED_DOWNLOADS = config.checkbox_to_value(use_failed_downloads)
-        sickbeard.DELETE_FAILED = config.checkbox_to_value(delete_failed)
         sickbeard.NFO_RENAME = config.checkbox_to_value(nfo_rename)
 
         sickbeard.METADATA_KODI = kodi_data
@@ -5005,7 +5093,7 @@ class ConfigNotifications(Config):
         sickbeard.PLEX_SERVER_TOKEN = config.clean_host(plex_server_token)
         sickbeard.PLEX_SERVER_USERNAME = plex_server_username
         sickbeard.PLEX_SERVER_PASSWORD = plex_server_password
-        sickbeard.USE_PLEX_CLIENT = config.checkbox_to_value(use_plex_server)
+        sickbeard.USE_PLEX_CLIENT = config.checkbox_to_value(use_plex_client)
         sickbeard.PLEX_CLIENT_USERNAME = plex_client_username
         sickbeard.PLEX_CLIENT_PASSWORD = plex_client_password
         sickbeard.PLEX_SERVER_HTTPS = config.checkbox_to_value(plex_server_https)

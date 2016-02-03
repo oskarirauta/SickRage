@@ -17,6 +17,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with SickRage. If not, see <http://www.gnu.org/licenses/>.
+# pylint:disable=too-many-lines
 
 import os
 import io
@@ -52,7 +53,7 @@ from sickbeard import logger, classes
 from sickbeard.common import USER_AGENT
 from sickbeard import db
 from sickbeard.notifiers import synoindex_notifier
-from sickrage.helper.common import http_code_description, media_extensions, pretty_file_size, subtitle_extensions
+from sickrage.helper.common import http_code_description, media_extensions, pretty_file_size, subtitle_extensions, episode_num
 from sickrage.helper.encoding import ek
 from sickrage.helper.exceptions import ex
 from sickrage.show.Show import Show
@@ -62,7 +63,6 @@ import shutil
 import shutil_custom
 
 import xml.etree.ElementTree as ET
-import json
 
 shutil.copyfile = shutil_custom.copyfile_custom
 
@@ -186,10 +186,7 @@ def isMediaFile(filename):
         if re.search('extras?$', sepFile[0], re.I):
             return False
 
-        if sepFile[2].lower() in media_extensions:
-            return True
-        else:
-            return False
+        return sepFile[2].lower() in media_extensions
     except TypeError as error:  # Not a string
         logger.log('Invalid filename. Filename must be a string. %s' % error, logger.DEBUG)  # pylint: disable=no-member
         return False
@@ -704,9 +701,12 @@ def get_absolute_number_from_season_and_episode(show, season, episode):
 
         if len(sql_results) == 1:
             absolute_number = int(sql_results[0]["absolute_number"])
-            logger.log(u"Found absolute number %s for show %s S%02dE%02d" % (absolute_number, show.name, season, episode), logger.DEBUG)
+            logger.log(u"Found absolute number {absolute} for show {show} {ep}".format
+                       (absolute=absolute_number, show=show.name,
+                        ep=episode_num(season, episode)), logger.DEBUG)
         else:
-            logger.log(u"No entries for absolute number for show %s S%02dE%02d" % (show.name, season, episode), logger.DEBUG)
+            logger.log(u"No entries for absolute number for show {show} {ep}".format
+                       (show=show.name, ep=episode_num(season, episode)), logger.DEBUG)
 
     return absolute_number
 
@@ -1414,7 +1414,8 @@ def _setUpSession(session, headers):
     return session
 
 
-def getURL(url, post_data=None, params=None, headers=None, timeout=30, session=None, json=False, need_bytes=False):
+def getURL(url, post_data=None, params=None, headers=None,  # pylint:disable=too-many-arguments, too-many-return-statements, too-many-branches
+           timeout=30, session=None, json=False, need_bytes=False):
     """
     Returns a byte-string retrieved from the url provider.
     """
@@ -1447,30 +1448,33 @@ def getURL(url, post_data=None, params=None, headers=None, timeout=30, session=N
             return None
 
     except (SocketTimeout, TypeError) as e:
-        logger.log(u"Connection timed out (sockets) accessing getURL %s Error: %r" % (url, ex(e)), logger.WARNING)
+        logger.log(u"Connection timed out (sockets) accessing getURL %s Error: %r" % (url, ex(e)), logger.DEBUG)
         return None
     except (requests.exceptions.HTTPError, requests.exceptions.TooManyRedirects) as e:
-        logger.log(u"HTTP error in getURL %s Error: %r" % (url, ex(e)), logger.WARNING)
+        logger.log(u"HTTP error in getURL %s Error: %r" % (url, ex(e)), logger.DEBUG)
         return None
     except requests.exceptions.ConnectionError as e:
-        logger.log(u"Connection error to getURL %s Error: %r" % (url, ex(e)), logger.WARNING)
+        logger.log(u"Connection error to getURL %s Error: %r" % (url, ex(e)), logger.DEBUG)
         return None
     except requests.exceptions.Timeout as e:
-        logger.log(u"Connection timed out accessing getURL %s Error: %r" % (url, ex(e)), logger.WARNING)
+        logger.log(u"Connection timed out accessing getURL %s Error: %r" % (url, ex(e)), logger.DEBUG)
         return None
     except requests.exceptions.ContentDecodingError:
         logger.log(u"Content-Encoding was gzip, but content was not compressed. getURL: %s" % url, logger.DEBUG)
         logger.log(traceback.format_exc(), logger.DEBUG)
         return None
     except Exception as e:
-        logger.log(u"Unknown exception in getURL %s Error: %r" % (url, ex(e)), logger.WARNING)
-        logger.log(traceback.format_exc(), logger.WARNING)
+        if hasattr(e, 'errno') and e.errno == errno.ECONNRESET:
+            logger.log(u"Connection reseted by peer accessing getURL %s Error: %r" % (url, ex(e)), logger.DEBUG)
+        else:
+            logger.log(u"Unknown exception in getURL %s Error: %r" % (url, ex(e)), logger.ERROR)
+            logger.log(traceback.format_exc(), logger.DEBUG)
         return None
 
     return (resp.text, resp.content)[need_bytes] if not json else resp.json()
 
 
-def download_file(url, filename, session=None, headers=None):
+def download_file(url, filename, session=None, headers=None):  # pylint:disable=too-many-return-statements
     """
     Downloads a file specified
 
@@ -1524,7 +1528,8 @@ def download_file(url, filename, session=None, headers=None):
         return False
     except Exception:
         remove_file_failed(filename)
-        logger.log(u"Unknown exception while loading download URL %s : %r" % (url, traceback.format_exc()), logger.WARNING)
+        logger.log(u"Unknown exception while loading download URL %s : %r" % (url, traceback.format_exc()), logger.ERROR)
+        logger.log(traceback.format_exc(), logger.DEBUG)
         return False
 
     return True
@@ -1727,7 +1732,7 @@ def getDiskSpaceUsage(diskPath=None):
         return False
 
 
-def getTVDBFromID(indexer_id, indexer):
+def getTVDBFromID(indexer_id, indexer):  # pylint:disable=too-many-return-statements
 
     session = requests.Session()
     tvdb_id = ''
@@ -1769,6 +1774,7 @@ def getTVDBFromID(indexer_id, indexer):
     else:
         return tvdb_id
 
+
 def get_showname_from_indexer(indexer, indexer_id, lang='en'):
     lINDEXER_API_PARMS = sickbeard.indexerApi(indexer).api_params.copy()
     if lang:
@@ -1778,11 +1784,12 @@ def get_showname_from_indexer(indexer, indexer_id, lang='en'):
 
     t = sickbeard.indexerApi(indexer).indexer(**lINDEXER_API_PARMS)
     s = t[int(indexer_id)]
-    
-    if hasattr(s,'data'):
+
+    if hasattr(s, 'data'):
         return s.data.get('seriesname')
-    
+
     return None
+
 
 def is_ip_private(ip):
     priv_lo = re.compile(r"^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
