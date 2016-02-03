@@ -2128,16 +2128,6 @@ class Home(WebRoot):
 
         sickbeard.searchQueueScheduler.action.add_item(ep_queue_item)
 
-        if manualSelect is not None:
-            time.sleep(30)
-        # TODO: wait while thread is not finished
-
-        if ep_queue_item.results is not None:
-            logger.log(u"We should redirect", logger.INFO)
-            return self.redirect('/home/manualSelect?show=' + show + '&season=' + season + '&episode=' + episode)
-        else:
-            logger.log(u"We should not redirect", logger.INFO)
-
         if not ep_queue_item.started and ep_queue_item.success is None:
             return json.dumps(
                 {'result': 'success'})  # I Actually want to call it queued, because the search hasnt been started yet!

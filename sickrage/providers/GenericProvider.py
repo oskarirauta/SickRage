@@ -123,11 +123,11 @@ class GenericProvider(object):  # pylint: disable=too-many-instance-attributes
             if manualSelect is False:
                 cache_result = self.cache.searchCache(episode, manualSearch=manual_search,
                                                   downCurQuality=download_current_quality)
-            if cache_result:
-                if episode.episode not in results:
-                    results[episode.episode] = cache_result
-                else:
-                    results[episode.episode].extend(cache_result)
+                if cache_result:
+                    if episode.episode not in results:
+                        results[episode.episode] = cache_result
+                    else:
+                        results[episode.episode].extend(cache_result)
 
                     continue
 

@@ -545,18 +545,18 @@ def searchProviders(show, episodes, manualSearch=False, downCurQuality=False, ma
                 logger.log(u"Fallback season pack search initiate", logger.DEBUG)
                 search_mode = 'sponly'
 
+        # skip to next provider if we have no results to process
+        if not len(foundResults[curProvider.name]):
+            continue
+
         # Update the cache if a manual search is being runned
         # We would update this to insert backlog results as well
         if manualSelect is True:
-            logger.log(u"Manual:update cache.", logger.DEBUG)
             for item in searchResults[curEp]:
-                 logger.log(u"Item : %s" % item.name, logger.DEBUG)
+                logger.log(u"Item : %s" % item.name, logger.DEBUG)
             for curProvider in providers:
                 threading.currentThread().name = origThreadName + " :: [" + curProvider.name + "]"
                 curProvider.cache.updateCache(searchResults[curEp])
-
-        # skip to next provider if we have no results to process
-        if not len(foundResults[curProvider.name]):
             continue
 
         # pick the best season NZB
