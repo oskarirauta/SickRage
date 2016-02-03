@@ -169,7 +169,7 @@
     <table id="showTable" class="displayShowTable display_show tablesorter tablesorter-default hasSaveSort hasStickyHeaders" cellspacing="1" border="0" cellpadding="0">
         <tbody class="tablesorter-no-sort" aria-live="polite" aria-relevant="all">
         <tr style="height: 60px;" role="row">
-            <th style="vertical-align: bottom; width: auto;" colspan="6" class="row-seasonheader displayShowTable">
+            <th style="vertical-align: bottom; width: auto;" colspan="9" class="row-seasonheader displayShowTable">
                 <h3 style="display: inline;"><a name="season-${season}" style="position: absolute; font-size: 1px; visibility: hidden;">.</a>Season ${season} Episode ${episode}</h3>
             </th>
         </tr>
@@ -181,6 +181,9 @@
                 <th>Group</th>
                 <th>Provider</th>
                 <th>Quality</th>
+                <th>Seeders</th>
+                <th>Leechers</th>
+                <th>Size</th>
                 <th class="col-status">Status</th>
                 <th class="col-search">Download</th>
             </tr>
@@ -193,7 +196,10 @@
                     <td class="tvShow" class="col-name" width="35%">${hItem["name"]}</td>
                     <td align="center">${hItem["release_group"]}</td>
                     <td align="center">${provider}</td>
-                    <td align="center">${hItem["quality"]}</td>
+                    <td align="center">${Quality.qualityStrings[hItem["quality"]]}</td>
+                    <td align="center">${hItem["seeders"]}</td>
+                    <td align="center">${hItem["leechers"]}</td>
+                    <td align="center">${pretty_file_size(hItem["size"]) if hItem["size"] > -1 else 'Not available'}</td>
                     <td align="center" class="col-status">Ignored</td>
                     <td align="center" class="col-search" width="5%"><a class="epSearch" id="${str(show.indexerid)}x${season}x${episode}" name="${str(show.indexerid)}x${season}x${episode}" href="manualSnatchSelect?show=${show.indexerid}&amp;season=${season}&amp;episode=${episode}&amp;url=${hItem["url"]}&amp;quality=${hItem["quality"]}&amp;release_group=${hItem["release_group"]}&amp;provider=${provider}&amp;name=${hItem["name"]}"><img src="${srRoot}/images/search16.png" width="16" height="16" alt="search" title="Download selected episode" /></a></td>
                 </tr>

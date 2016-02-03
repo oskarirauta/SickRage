@@ -2109,9 +2109,6 @@ class Home(WebRoot):
 
     def searchEpisode(self, show=None, season=None, episode=None, downCurQuality=0, manualSelect=None):
 
-        if manualSelect is not None:
-            logger.log(u'Manual select: ', logger.INFO)
-
         # retrieve the episode object and fail if we can't get one
         ep_obj = self._getEpisode(show, season, episode)
         if isinstance(ep_obj, str):

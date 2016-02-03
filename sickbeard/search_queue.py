@@ -144,7 +144,10 @@ class DailySearchQueueItem(generic_queue.QueueItem):
             else:
                 for result in foundResults:
                     # just use the first result for now
-                    logger.log(u"Downloading " + result.name + " from " + result.provider.name)
+                    if result.seeders is not -1 and result.leechers is not -1:
+                        logger.log(u"Downloading " + result.name + " with " + str(result.seeders) + " seeders and " + str(result.leechers) + " leechers from " + result.provider.name)
+                    else:
+                        logger.log(u"Downloading " + result.name + " from " + result.provider.name)
                     self.success = search.snatchEpisode(result)
 
                     # give the CPU a break
@@ -188,7 +191,10 @@ class ManualSearchQueueItem(generic_queue.QueueItem):
                     self.results = searchResult
                 else:
                     # just use the first result for now
-                    logger.log(u"Downloading " + searchResult[0].name + " from " + searchResult[0].provider.name)
+                    if searchResult[0].seeders is not -1 and searchResult[0].leechers is not -1:
+                        logger.log(u"Downloading " + searchResult[0].name + " with " + str(searchResult[0].seeders) + " seeders and " + str(searchResult[0].leechers) + " leechers from " + searchResult[0].provider.name)
+                    else:
+                        logger.log(u"Downloading " + searchResult[0].name + " from " + searchResult[0].provider.name)
                     self.success = search.snatchEpisode(searchResult[0])
 
                 # give the CPU a break
@@ -293,7 +299,10 @@ class BacklogQueueItem(generic_queue.QueueItem):
                 if searchResult:
                     for result in searchResult:
                         # just use the first result for now
-                        logger.log(u"Downloading " + result.name + " from " + result.provider.name)
+                        if result.seeders is not -1 and result.leechers is not -1:
+                            logger.log(u"Downloading " + result.name + " with " + str(result.seeders) + " seeders and " + str(result.leechers) + " leechers from " + result.provider.name)
+                        else:
+                            logger.log(u"Downloading " + result.name + " from " + result.provider.name)
                         search.snatchEpisode(result)
 
                         # give the CPU a break
@@ -343,7 +352,10 @@ class FailedQueueItem(generic_queue.QueueItem):
             if searchResult:
                 for result in searchResult:
                     # just use the first result for now
-                    logger.log(u"Downloading " + result.name + " from " + result.provider.name)
+                    if result.seeders is not -1 and result.leechers is not -1:
+                        logger.log(u"Downloading " + result.name + " with " + str(result.seeders) + " seeders and " + str(result.leechers) + " leechers from " + result.provider.name)
+                    else:
+                        logger.log(u"Downloading " + result.name + " from " + result.provider.name)  
                     search.snatchEpisode(result)
 
                     # give the CPU a break
