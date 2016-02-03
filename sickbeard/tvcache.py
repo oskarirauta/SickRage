@@ -100,9 +100,17 @@ class TVCache(object):
         return self.providerDB
 
     def _clearCache(self):
-        if self.shouldClearCache():
-            cache_db_con = self._getDB()
-            cache_db_con.action("DELETE FROM [" + self.providerID + "] WHERE 1")
+        # Clear only items older than 7 days
+        self._clearCacheItem()
+        #if self.shouldClearCache():
+        #    cache_db_con = self._getDB()
+        #    cache_db_con.action("DELETE FROM [" + self.providerID + "] WHERE 1")
+
+    def _clearCacheItem(self):
+        cache_db_con = self._getDB()
+        today = int(time.mktime(datetime.datetime.today().timetuple()))
+        # Keep item in cache for 7 days
+        cache_db_con.action("DELETE FROM [" + self.providerID + "] WHERE time > ? ", [today + 7*86400]) # 86400 POSIX day (exact value)
 
     def _get_title_and_url(self, item):
         return self.provider._get_title_and_url(item)  # pylint:disable=protected-access
