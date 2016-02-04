@@ -92,6 +92,8 @@ from tornado.concurrent import run_on_executor
 from concurrent.futures import ThreadPoolExecutor
 from mako.runtime import UNDEFINED
 
+from sickbeard import common
+
 mako_lookup = None
 mako_cache = None
 mako_path = None
@@ -2128,12 +2130,18 @@ class Home(WebRoot):
 
         sickbeard.searchQueueScheduler.action.add_item(ep_queue_item)
 
-        if ep_queue_item.started and ep_queue_item.success is None:
-            if manualSelect is None:
+        # give the CPU a break and some time to start the queue
+        time.sleep(common.cpu_presets[sickbeard.CPU_PRESET])
+
+        if not ep_queue_item.started and ep_queue_item.success is None:
+            return json.dumps(
+                {'result': 'success'})  # I Actually want to call it queued, because the search hasnt been started yet!
+        if ep_queue_item.started:
+            if manualSelect and ep_queue_item.success is None:
                 return json.dumps({'result': 'success'})
             else:
-                return json.dumps({'result': 'redirect'})
-                #return self.redirect("/home/manualSelect?show=" + show + "&season=" + season + "&episode=" + episode)
+                #return json.dumps({'result': 'redirect'})
+                return self.redirect("/home/manualSelect?show=" + show + "&season=" + season + "&episode=" + episode)
         else:
             return json.dumps({'result': 'failure'})
 
