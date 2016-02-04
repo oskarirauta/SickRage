@@ -203,8 +203,10 @@ $(document).ready(function () {
                     imageName = options.noImage;
                     imageResult = 'failed';
 
-                // if the snatch was successful then apply the corresponding class and fill in the row appropriately
-                } else {
+                } else if (data.result.toLowerCase === 'redirect') {
+                    window.location = "http://www.google.com"; // doesn't work yet
+
+                } else { // if the snatch was successful then apply the corresponding class and fill in the row appropriately
                     imageName = options.loadingImage;
                     imageResult = 'success';
                     // color the row

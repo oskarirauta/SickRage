@@ -185,21 +185,21 @@ class ManualSearchQueueItem(generic_queue.QueueItem):
 
             searchResult = search.searchProviders(self.show, [self.segment], True, self.downCurQuality, self.manualSelect)
 
-            if searchResult:
-                if self.manualSelect:
-                    logger.log(u"Manual: dont download " + searchResult[0].name + " from " + searchResult[0].provider.name)
-                    self.results = searchResult
+            if self.manualSelect is False and searchResult:
+                # just use the first result for now
+                if searchResult[0].seeders is not -1 and searchResult[0].leechers is not -1:
+                    logger.log(u"Downloading " + searchResult[0].name + " with " + str(searchResult[0].seeders) + " seeders and " + str(searchResult[0].leechers) + " leechers from " + searchResult[0].provider.name)
                 else:
-                    # just use the first result for now
-                    if searchResult[0].seeders is not -1 and searchResult[0].leechers is not -1:
-                        logger.log(u"Downloading " + searchResult[0].name + " with " + str(searchResult[0].seeders) + " seeders and " + str(searchResult[0].leechers) + " leechers from " + searchResult[0].provider.name)
-                    else:
-                        logger.log(u"Downloading " + searchResult[0].name + " from " + searchResult[0].provider.name)
-                    self.success = search.snatchEpisode(searchResult[0])
+                    logger.log(u"Downloading " + searchResult[0].name + " from " + searchResult[0].provider.name)
+                self.success = search.snatchEpisode(searchResult[0])
 
                 # give the CPU a break
                 time.sleep(common.cpu_presets[sickbeard.CPU_PRESET])
-
+            elif self.manualSelect is True and searchResult is True:
+                    self.success = True
+                    self.results = searchResult
+                    ui.notifications.message("We have found downloads for <i>%s</i>" % self.segment.prettyName(),
+                                             "You will be redirected prompty")
             else:
                 ui.notifications.message('No downloads were found',
                                          "Couldn't find a download for <i>%s</i>" % self.segment.prettyName())
@@ -355,7 +355,7 @@ class FailedQueueItem(generic_queue.QueueItem):
                     if result.seeders is not -1 and result.leechers is not -1:
                         logger.log(u"Downloading " + result.name + " with " + str(result.seeders) + " seeders and " + str(result.leechers) + " leechers from " + result.provider.name)
                     else:
-                        logger.log(u"Downloading " + result.name + " from " + result.provider.name)  
+                        logger.log(u"Downloading " + result.name + " from " + result.provider.name)
                     search.snatchEpisode(result)
 
                     # give the CPU a break

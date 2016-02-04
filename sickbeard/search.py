@@ -457,6 +457,7 @@ def searchProviders(show, episodes, manualSearch=False, downCurQuality=False, ma
     """
     foundResults = {}
     finalResults = []
+    finalResult = []
 
     didSearch = False
 
@@ -556,7 +557,10 @@ def searchProviders(show, episodes, manualSearch=False, downCurQuality=False, ma
                 logger.log(u"Item : %s" % item.name, logger.DEBUG)
             for curProvider in providers:
                 threading.currentThread().name = origThreadName + " :: [" + curProvider.name + "]"
-                curProvider.cache.updateCache(searchResults[curEp])
+                results = curProvider.cache.updateCache(searchResults[curEp])
+                if results is True:
+                    # If we have at least a result from one provider, it's good enough to be marked as result
+                    finalResult.append(results)
             continue
 
         # pick the best season NZB
@@ -755,4 +759,11 @@ def searchProviders(show, episodes, manualSearch=False, downCurQuality=False, ma
 
     # Remove provider from thread name before return results
     threading.currentThread().name = origThreadName
-    return finalResults
+
+    if manualSelect is True:
+        if True in finalResult:
+            return True
+        else:
+            return False
+    else:
+        return finalResults

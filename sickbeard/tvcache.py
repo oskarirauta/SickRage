@@ -135,18 +135,15 @@ class TVCache(object):
     def updateCache(self, manualData = None):
         # check if we should update
         if not self.shouldUpdate():
-            return
+            return False
+
+        cl = []
 
         if manualData is not None:
-            cl = []
             for item in manualData:
                 ci = self._addCacheEntry(item.name, item.url, item.seeders, item.leechers, item.size)
                 if ci is not None:
                     cl.append(ci)
-
-            if len(cl) > 0:
-                    cache_db_con = self._getDB()
-                    cache_db_con.mass_action(cl, True)
         else:
             try:
                 data = self._getRSSData()
@@ -157,20 +154,23 @@ class TVCache(object):
                     # set updated
                     self.setLastUpdate()
 
-                    cl = []
                     for item in data['entries'] or []:
                         ci = self._parseItem(item)
                         if ci is not None:
                             cl.append(ci)
-
-                    if len(cl) > 0:
-                        cache_db_con = self._getDB()
-                        cache_db_con.mass_action(cl)
-
             except AuthException as e:
                 logger.log(u"Authentication error: " + ex(e), logger.ERROR)
             except Exception as e:
                 logger.log(u"Error while searching " + self.provider.name + ", skipping: " + repr(e), logger.DEBUG)
+
+        if len(cl) > 0:
+            cache_db_con = self._getDB()
+            results = cache_db_con.mass_action(cl)
+
+            if results:
+                return True
+
+        return False
 
     def getRSSFeed(self, url):
         handlers = []
