@@ -55,20 +55,20 @@ class SearchQueue(generic_queue.GenericQueue):
 
     def is_ep_in_queue(self, segment):
         for cur_item in self.queue:
-            if isinstance(cur_item, (ManualSearchQueueItem, FailedQueueItem)) and cur_item.segment == segment:
+            if isinstance(cur_item, (ManualSearchQueueItem, ManualSelectQueueItem, FailedQueueItem)) and cur_item.segment == segment:
                 return True
         return False
 
     def is_show_in_queue(self, show):
         for cur_item in self.queue:
-            if isinstance(cur_item, (ManualSearchQueueItem, FailedQueueItem)) and cur_item.show.indexerid == show:
+            if isinstance(cur_item, (ManualSearchQueueItem, ManualSelectQueueItem, FailedQueueItem)) and cur_item.show.indexerid == show:
                 return True
         return False
 
     def get_all_ep_from_queue(self, show):
         ep_obj_list = []
         for cur_item in self.queue:
-            if isinstance(cur_item, (ManualSearchQueueItem, FailedQueueItem)) and str(cur_item.show.indexerid) == show:
+            if isinstance(cur_item, (ManualSearchQueueItem, ManualSelectQueueItem, FailedQueueItem)) and str(cur_item.show.indexerid) == show:
                 ep_obj_list.append(cur_item)
         return ep_obj_list
 
@@ -84,7 +84,7 @@ class SearchQueue(generic_queue.GenericQueue):
 
     def is_manualsearch_in_progress(self):
         # Only referenced in webserve.py, only current running manualsearch or failedsearch is needed!!
-        if isinstance(self.currentItem, (ManualSearchQueueItem, FailedQueueItem)):
+        if isinstance(self.currentItem, (ManualSearchQueueItem, ManualSelectQueueItem, FailedQueueItem)):
             return True
         return False
 
@@ -101,7 +101,7 @@ class SearchQueue(generic_queue.GenericQueue):
         return False
 
     def queue_length(self):
-        length = {'backlog': 0, 'daily': 0, 'manual': 0, 'failed': 0}
+        length = {'backlog': 0, 'daily': 0, 'manual': 0, 'manualselect': 0, 'failed': 0}
         for cur_item in self.queue:
             if isinstance(cur_item, DailySearchQueueItem):
                 length['daily'] += 1
@@ -109,6 +109,8 @@ class SearchQueue(generic_queue.GenericQueue):
                 length['backlog'] += 1
             elif isinstance(cur_item, ManualSearchQueueItem):
                 length['manual'] += 1
+            elif isinstance(cur_item, ManualSelectQueueItem):
+                length['manualselect'] += 1
             elif isinstance(cur_item, FailedQueueItem):
                 length['failed'] += 1
         return length
@@ -202,7 +204,7 @@ class ManualSearchQueueItem(generic_queue.QueueItem):
                                              "You will be redirected promptly")
             else:
                 ui.notifications.message('No downloads were found',
-                                         "Couldn't find a download for <i>%s</i>" % self.segment.prettyName())
+                                         "Couldn't find a download for %s" % self.segment.prettyName())
 
                 logger.log(u"Unable to find a download for: [" + self.segment.prettyName() + "]")
 

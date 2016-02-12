@@ -2136,12 +2136,8 @@ class Home(WebRoot):
         if not ep_queue_item.started and ep_queue_item.success is None:
             return json.dumps(
                 {'result': 'success'})  # I Actually want to call it queued, because the search hasnt been started yet!
-        if ep_queue_item.started:
-            if manualSelect and ep_queue_item.success is None:
-                return json.dumps({'result': 'success'})
-            else:
-                #return json.dumps({'result': 'redirect'})
-                return self.redirect("/home/manualSelect?show=" + show + "&season=" + season + "&episode=" + episode)
+        if ep_queue_item.started and ep_queue_item.success is None:
+            return json.dumps({'result': 'success'})
         else:
             return json.dumps({'result': 'failure'})
 

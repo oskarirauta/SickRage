@@ -196,7 +196,7 @@
                     <td class="tvShow" class="col-name" width="35%">${hItem["name"]}</td>
                     <td align="center">${hItem["release_group"]}</td>
                     <td align="center">${provider}</td>
-                    <td align="center">${Quality.qualityStrings[hItem["quality"]]}</td>
+                    <td align="center">${renderQualityPill(int(hItem["quality"]))}</td>
                     <td align="center">${hItem["seeders"] if hItem["seeders"] > -1 else 'Not available'}</td>
                     <td align="center">${hItem["leechers"] if hItem["leechers"] > -1 else 'Not available'}</td>
                     <td align="center">${pretty_file_size(hItem["size"]) if hItem["size"] > -1 else 'Not available'}</td>
