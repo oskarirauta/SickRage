@@ -34,22 +34,32 @@ class TorrentzProvider(TorrentProvider):  # pylint: disable=too-many-instance-at
 
     def __init__(self):
 
+        # Provider Init
         TorrentProvider.__init__(self, "Torrentz")
 
+        # Credentials
         self.public = True
         self.confirmed = True
+
+        # Torrent Stats
         self.ratio = None
         self.minseed = None
         self.minleech = None
-        self.cache = tvcache.TVCache(self, min_time=15)  # only poll Torrentz every 15 minutes max
-        self.headers.update({'User-Agent': USER_AGENT})
-        self.urls = {'verified': 'https://torrentz.eu/feed_verified',
-                     'feed': 'https://torrentz.eu/feed',
-                     'base': 'https://torrentz.eu/'}
-        self.url = self.urls['base']
 
-    def seed_ratio(self):
-        return self.ratio
+
+        # URLs
+        self.url = 'https://torrentz.eu/'
+        self.urls = {
+            'verified': 'https://torrentz.eu/feed_verified',
+            'feed': 'https://torrentz.eu/feed',
+            'base': self.url,
+        }
+        self.headers.update({'User-Agent': USER_AGENT})
+
+        # Proper Strings
+
+        # Cache
+        self.cache = tvcache.TVCache(self, min_time=15)  # only poll Torrentz every 15 minutes max
 
     @staticmethod
     def _split_description(description):
@@ -65,7 +75,8 @@ class TorrentzProvider(TorrentProvider):  # pylint: disable=too-many-instance-at
             for search_string in search_strings[mode]:
                 search_url = self.urls['verified'] if self.confirmed else self.urls['feed']
                 if mode != 'RSS':
-                    logger.log(u"Search string: %s " % search_string, logger.DEBUG)
+                    logger.log(u"Search string: {search}".format(search=search_string.decode('utf-8')),
+                               logger.DEBUG)
 
                     search_url += '?q=' + urllib.parse.quote_plus(search_string)
 
@@ -103,8 +114,7 @@ class TorrentzProvider(TorrentProvider):  # pylint: disable=too-many-instance-at
                                 continue
 
                             items.append((title, download_url, size, seeders, leechers))
-
-                except (AttributeError, TypeError, KeyError, ValueError):
+                except StandardError:
                     logger.log(u"Failed parsing provider. Traceback: %r" % traceback.format_exc(), logger.ERROR)
 
             # For each search mode sort all the items by seeders if available
@@ -112,5 +122,8 @@ class TorrentzProvider(TorrentProvider):  # pylint: disable=too-many-instance-at
             results += items
 
         return results
+
+    def seed_ratio(self):
+        return self.ratio
 
 provider = TorrentzProvider()

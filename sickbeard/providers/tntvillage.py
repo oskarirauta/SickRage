@@ -263,13 +263,9 @@ class TNTVillageProvider(TorrentProvider):  # pylint: disable=too-many-instance-
     def _is_season_pack(name):
 
         try:
-            myParser = NameParser(tryIndexers=True)
-            parse_result = myParser.parse(name)
-        except InvalidNameException:
-            logger.log(u"Unable to parse the filename %s into a valid episode" % name, logger.DEBUG)
-            return False
-        except InvalidShowException:
-            logger.log(u"Unable to parse the filename %s into a valid show" % name, logger.DEBUG)
+            parse_result = NameParser(tryIndexers=True).parse(name)
+        except (InvalidNameException, InvalidShowException) as error:
+            logger.log(u"{}".format(error), logger.DEBUG)
             return False
 
         main_db_con = db.DBConnection()
@@ -312,7 +308,8 @@ class TNTVillageProvider(TorrentProvider):  # pylint: disable=too-many-instance-
                         search_url = self.urls['search_page'].format(z, self.categories)
 
                     if mode != 'RSS':
-                        logger.log(u"Search string: %s " % search_string, logger.DEBUG)
+                        logger.log(u"Search string: {search}".format(search=search_string.decode('utf-8')),
+                               logger.DEBUG)
 
                     logger.log(u"Search URL: %s" % search_url, logger.DEBUG)
                     data = self.get_url(search_url)

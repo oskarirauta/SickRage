@@ -188,13 +188,9 @@ class GenericProvider(object):  # pylint: disable=too-many-instance-attributes
             (seeders, leechers) = self._get_result_info(item)
 
             try:
-                parser = NameParser(parse_method=('normal', 'anime')[show.is_anime])
-                parse_result = parser.parse(title)
-            except InvalidNameException:
-                logger.log(u'Unable to parse the filename %s into a valid episode' % title, logger.DEBUG)
-                continue
-            except InvalidShowException:
-                logger.log(u'Unable to parse the filename %s into a valid show' % title, logger.DEBUG)
+                parse_result = NameParser(parse_method=('normal', 'anime')[show.is_anime]).parse(title)
+            except (InvalidNameException, InvalidShowException) as error:
+                logger.log(u"{}".format(error), logger.DEBUG)
                 continue
 
             show_object = parse_result.show
@@ -206,32 +202,30 @@ class GenericProvider(object):  # pylint: disable=too-many-instance-attributes
             if manualSelect is False:
                 if not (show_object.air_by_date or show_object.sports):
                     if search_mode == 'sponly':
-                        if len(parse_result.episode_numbers):
+                        if parse_result.episode_numbers:
                             logger.log(
                                 u'This is supposed to be a season pack search but the result %s is not a valid season pack, skipping it' % title,
                                 logger.DEBUG
                             )
                             add_cache_entry = True
+                        elif not [ep for ep in episodes if parse_result.season_number == (ep.season, ep.scene_season)[ep.show.is_scene]]:
+                            logger.log(
+                                u'This season result %s is for a season we are not searching for, skipping it' % title,
+                                logger.DEBUG
+                            )
+                            add_cache_entry = True
 
-                        if len(parse_result.episode_numbers) and (
-                                parse_result.season_number not in set([ep.season for ep in episodes]) or
-                                not [ep for ep in episodes if ep.scene_episode in parse_result.episode_numbers]):
-                            logger.log(
-                                u'The result %s doesn\'t seem to be a valid episode that we are trying to snatch, ignoring' % title,
-                                logger.DEBUG)
-                            add_cache_entry = True
                     else:
-                        if not len(parse_result.episode_numbers) and parse_result.season_number and not [ep for ep in
-                                                                                                         episodes if
-                                                                                                         ep.season == parse_result.season_number and ep.episode in parse_result.episode_numbers]:
+                        if not all([
+                            # pylint: disable=bad-continuation
+                            parse_result.season_number is not None,
+                            parse_result.episode_numbers,
+                            [ep for ep in episodes if (ep.season, ep.scene_season)[ep.show.is_scene] ==
+                             parse_result.season_number and (ep.episode, ep.scene_episode)[ep.show.is_scene] in parse_result.episode_numbers]
+                        ]):
+
                             logger.log(
-                                u'The result %s doesn\'t seem to be a valid season that we are trying to snatch, ignoring' % title,
-                                logger.DEBUG)
-                            add_cache_entry = True
-                        elif len(parse_result.episode_numbers) and not [ep for ep in episodes if
-                                                                        ep.season == parse_result.season_number and ep.episode in parse_result.episode_numbers]:
-                            logger.log(
-                                u'The result %s doesn\'t seem to be a valid episode that we are trying to snatch, ignoring' % title,
+                                u'The result %s doesn\'t seem to match an episode that we are currently trying to snatch, skipping it' % title,
                                 logger.DEBUG)
                             add_cache_entry = True
 
@@ -403,7 +397,7 @@ class GenericProvider(object):  # pylint: disable=too-many-instance-attributes
             'Episode': []
         }
 
-        for show_name in set(allPossibleShowNames(episode.show)):
+        for show_name in set(allPossibleShowNames(episode.show, season=episode.scene_season)):
             episode_string = show_name + ' '
 
             if episode.show.air_by_date:
@@ -432,7 +426,7 @@ class GenericProvider(object):  # pylint: disable=too-many-instance-attributes
             'Season': []
         }
 
-        for show_name in set(allPossibleShowNames(self.show)):
+        for show_name in set(allPossibleShowNames(episode.show, season=episode.scene_season)):
             episode_string = show_name + ' '
 
             if episode.show.air_by_date or episode.show.sports:

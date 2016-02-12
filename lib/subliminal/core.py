@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 import io
+import itertools
 import logging
 import operator
 import os.path
@@ -11,50 +13,45 @@ from babelfish import Language
 import requests
 from stevedore import ExtensionManager
 
-from .subtitle import compute_score, get_subtitle_path
+from .score import compute_score as default_compute_score
+from .subtitle import get_subtitle_path
 
 logger = logging.getLogger(__name__)
 
 
-class ProviderManager(ExtensionManager):
-    """Manager for providers based on :class:`~stevedore.extension.ExtensionManager`.
+class RegistrableExtensionManager(ExtensionManager):
+    """:class:~stevedore.extensions.ExtensionManager` with support for registration.
 
-    It allows loading of internal providers without setup and registering/unregistering additional providers.
+    It allows loading of internal extensions without setup and registering/unregistering additional extensions.
 
     Loading is done in this order:
 
-    * Entry point providers
-    * Internal providers
-    * Registered providers
+    * Entry point extensions
+    * Internal extensions
+    * Registered extensions
 
     """
-    internal_providers = [
-      'addic7ed = subliminal.providers.addic7ed:Addic7edProvider',
-      'opensubtitles = subliminal.providers.opensubtitles:OpenSubtitlesProvider',
-      'podnapisi = subliminal.providers.podnapisi:PodnapisiProvider',
-      'subscenter = subliminal.providers.subscenter:SubsCenterProvider',
-      'thesubdb = subliminal.providers.thesubdb:TheSubDBProvider',
-      'tvsubtitles = subliminal.providers.tvsubtitles:TVsubtitlesProvider'
-    ]
+    def __init__(self, namespace, internal_extensions):
+        #: Registered extensions with entry point syntax
+        self.registered_extensions = []
 
-    def __init__(self):
-        #: Registered providers with entry point syntax
-        self.registered_providers = []
+        #: Internal extensions with entry point syntax
+        self.internal_extensions = internal_extensions
 
-        super(ProviderManager, self).__init__('subliminal.providers')
+        super(RegistrableExtensionManager, self).__init__(namespace)
 
     def _find_entry_points(self, namespace):
-        # default entry points
-        eps = super(ProviderManager, self)._find_entry_points(namespace)
+        # default extensions
+        eps = super(RegistrableExtensionManager, self)._find_entry_points(namespace)
 
-        # internal entry points
-        for iep in self.internal_providers:
+        # internal extensions
+        for iep in self.internal_extensions:
             ep = EntryPoint.parse(iep)
             if ep.name not in [e.name for e in eps]:
                 eps.append(ep)
 
-        # registered entry points
-        for rep in self.registered_providers:
+        # registered extensions
+        for rep in self.registered_extensions:
             ep = EntryPoint.parse(rep)
             if ep.name not in [e.name for e in eps]:
                 eps.append(ep)
@@ -62,24 +59,24 @@ class ProviderManager(ExtensionManager):
         return eps
 
     def register(self, entry_point):
-        """Register a provider
+        """Register an extension
 
-        :param str entry_point: provider to register (entry point syntax)
+        :param str entry_point: extension to register (entry point syntax)
         :raise: ValueError if already registered
 
         """
-        if entry_point in self.registered_providers:
-            raise ValueError('Entry point already registered')
+        if entry_point in self.registered_extensions:
+            raise ValueError('Extension already registered')
 
         ep = EntryPoint.parse(entry_point)
         if ep.name in self.names():
-            raise ValueError('A provider with the same name already exist')
+            raise ValueError('An extension with the same name already exist')
 
         ext = self._load_one_plugin(ep, False, (), {}, False)
         self.extensions.append(ext)
         if self._extensions_by_name is not None:
             self._extensions_by_name[ext.name] = ext
-        self.registered_providers.insert(0, entry_point)
+        self.registered_extensions.insert(0, entry_point)
 
     def unregister(self, entry_point):
         """Unregister a provider
@@ -87,11 +84,11 @@ class ProviderManager(ExtensionManager):
         :param str entry_point: provider to unregister (entry point syntax)
 
         """
-        if entry_point not in self.registered_providers:
-            raise ValueError('Entry point not registered')
+        if entry_point not in self.registered_extensions:
+            raise ValueError('Extension not registered')
 
         ep = EntryPoint.parse(entry_point)
-        self.registered_providers.remove(entry_point)
+        self.registered_extensions.remove(entry_point)
         if self._extensions_by_name is not None:
             del self._extensions_by_name[ep.name]
         for i, ext in enumerate(self.extensions):
@@ -99,7 +96,20 @@ class ProviderManager(ExtensionManager):
                 del self.extensions[i]
                 break
 
-provider_manager = ProviderManager()
+
+provider_manager = RegistrableExtensionManager('subliminal.providers', [
+    'addic7ed = subliminal.providers.addic7ed:Addic7edProvider',
+    'opensubtitles = subliminal.providers.opensubtitles:OpenSubtitlesProvider',
+    'podnapisi = subliminal.providers.podnapisi:PodnapisiProvider',
+    'subscenter = subliminal.providers.subscenter:SubsCenterProvider',
+    'thesubdb = subliminal.providers.thesubdb:TheSubDBProvider',
+    'tvsubtitles = subliminal.providers.tvsubtitles:TVsubtitlesProvider'
+])
+
+refiner_manager = RegistrableExtensionManager('subliminal.refiners', [
+    'tvdb = subliminal.refiners.tvdb:refine',
+    'omdb = subliminal.refiners.omdb:refine'
+])
 
 
 class ProviderPool(object):
@@ -107,7 +117,7 @@ class ProviderPool(object):
 
     It has a few extra features:
 
-        * Lazy loads providers when needed and supports the :keyword:`with` statement to :meth:`terminate`
+        * Lazy loads providers when needed and supports the `with` statement to :meth:`terminate`
           the providers on exit.
         * Automatically discard providers on failure.
 
@@ -163,6 +173,40 @@ class ProviderPool(object):
     def __iter__(self):
         return iter(self.initialized_providers)
 
+    def list_subtitles_provider(self, provider, video, languages):
+        """List subtitles with a single provider.
+
+        The video and languages are checked against the provider.
+
+        :param str provider: name of the provider.
+        :param video: video to list subtitles for.
+        :type video: :class:`~subliminal.video.Video`
+        :param languages: languages to search for.
+        :type languages: set of :class:`~babelfish.language.Language`
+        :return: found subtitles.
+        :rtype: list of :class:`~subliminal.subtitle.Subtitle` or None
+
+        """
+        # check video validity
+        if not provider_manager[provider].plugin.check(video):
+            logger.info('Skipping provider %r: not a valid video', provider)
+            return []
+
+        # check supported languages
+        provider_languages = provider_manager[provider].plugin.languages & languages
+        if not provider_languages:
+            logger.info('Skipping provider %r: no language to search for', provider)
+            return []
+
+        # list subtitles
+        logger.info('Listing subtitles with provider %r and languages %r', provider, provider_languages)
+        try:
+            return self[provider].list_subtitles(video, provider_languages)
+        except (requests.Timeout, socket.timeout):
+            logger.error('Provider %r timed out', provider)
+        except:
+            logger.exception('Unexpected error in provider %r', provider)
+
     def list_subtitles(self, video, languages):
         """List subtitles.
 
@@ -182,29 +226,14 @@ class ProviderPool(object):
                 logger.debug('Skipping discarded provider %r', name)
                 continue
 
-            # check video validity
-            if not provider_manager[name].plugin.check(video):
-                logger.info('Skipping provider %r: not a valid video', name)
-                continue
-
-            # check supported languages
-            provider_languages = provider_manager[name].plugin.languages & languages
-            if not provider_languages:
-                logger.info('Skipping provider %r: no language to search for', name)
-                continue
-
             # list subtitles
-            logger.info('Listing subtitles with provider %r and languages %r', name, provider_languages)
-            try:
-                provider_subtitles = self[name].list_subtitles(video, provider_languages)
-            except (requests.Timeout, socket.timeout):
-                logger.error('Provider %r timed out, discarding it', name)
+            provider_subtitles = self.list_subtitles_provider(name, video, languages)
+            if provider_subtitles is None:
+                logger.info('Discarding provider %s', name)
                 self.discarded_providers.add(name)
                 continue
-            except:
-                logger.exception('Unexpected error in provider %r, discarding it', name)
-                self.discarded_providers.add(name)
-                continue
+
+            # add the subtitles
             subtitles.extend(provider_subtitles)
 
         return subtitles
@@ -243,7 +272,7 @@ class ProviderPool(object):
         return True
 
     def download_best_subtitles(self, subtitles, video, languages, min_score=0, hearing_impaired=False, only_one=False,
-                                scores=None):
+                                compute_score=None):
         """Download the best matching subtitles.
 
         :param subtitles: the subtitles to use.
@@ -255,15 +284,16 @@ class ProviderPool(object):
         :param int min_score: minimum score for a subtitle to be downloaded.
         :param bool hearing_impaired: hearing impaired preference.
         :param bool only_one: download only one subtitle, not one per language.
-        :param dict scores: scores to use, if `None`, the :attr:`~subliminal.video.Video.scores` from the video are
-            used.
+        :param function compute_score: function that takes `subtitle` and `video` as positional arguments,
+            `hearing_impaired` as keyword argument and returns the score.
         :return: downloaded subtitles.
         :rtype: list of :class:`~subliminal.subtitle.Subtitle`
 
         """
+        compute_score = compute_score or default_compute_score
+
         # sort subtitles by score
-        scored_subtitles = sorted([(s, compute_score(s.get_matches(video, hearing_impaired=hearing_impaired), video,
-                                                     scores=scores))
+        scored_subtitles = sorted([(s, compute_score(s, video, hearing_impaired=hearing_impaired))
                                   for s in subtitles], key=operator.itemgetter(1), reverse=True)
 
         # download best subtitles, falling back on the next on error
@@ -303,6 +333,41 @@ class ProviderPool(object):
             del self[name]
 
 
+class AsyncProviderPool(ProviderPool):
+    """Subclass of :class:`ProviderPool` with asynchronous support for :meth:`~ProviderPool.list_subtitles`.
+
+    :param int max_workers: maximum number of threads to use. If `None`, :attr:`max_workers` will be set
+        to the number of :attr:`~ProviderPool.providers`.
+
+    """
+    def __init__(self, max_workers=None, *args, **kwargs):
+        super(AsyncProviderPool, self).__init__(*args, **kwargs)
+
+        #: Maximum number of threads to use
+        self.max_workers = max_workers or len(self.providers)
+
+    def list_subtitles_provider(self, provider, video, languages):
+        return provider, super(AsyncProviderPool, self).list_subtitles_provider(provider, video, languages)
+
+    def list_subtitles(self, video, languages):
+        subtitles = []
+
+        with ThreadPoolExecutor(self.max_workers) as executor:
+            for provider, provider_subtitles in executor.map(self.list_subtitles_provider, self.providers,
+                                                             itertools.repeat(video, len(self.providers)),
+                                                             itertools.repeat(languages, len(self.providers))):
+                # discard provider that failed
+                if provider_subtitles is None:
+                    logger.info('Discarding provider %s', provider)
+                    self.discarded_providers.add(provider)
+                    continue
+
+                # add subtitles
+                subtitles.extend(provider_subtitles)
+
+        return subtitles
+
+
 def check_video(video, languages=None, age=None, undefined=False):
     """Perform some checks on the `video`.
 
@@ -340,17 +405,19 @@ def check_video(video, languages=None, age=None, undefined=False):
     return True
 
 
-def list_subtitles(videos, languages, **kwargs):
+def list_subtitles(videos, languages, pool_class=ProviderPool, **kwargs):
     """List subtitles.
 
     The `videos` must pass the `languages` check of :func:`check_video`.
 
-    All other parameters are passed onwards to the :class:`ProviderPool` constructor.
+    All other parameters are passed onwards to the provided `pool_class` constructor.
 
     :param videos: videos to list subtitles for.
     :type videos: set of :class:`~subliminal.video.Video`
     :param languages: languages to search for.
     :type languages: set of :class:`~babelfish.language.Language`
+    :param pool_class: class to use as provider pool.
+    :type: :class:`ProviderPool`, :class:`AsyncProviderPool` or similar
     :return: found subtitles per video.
     :rtype: dict of :class:`~subliminal.video.Video` to list of :class:`~subliminal.subtitle.Subtitle`
 
@@ -365,12 +432,12 @@ def list_subtitles(videos, languages, **kwargs):
             continue
         checked_videos.append(video)
 
-    # return immediatly if no video passed the checks
+    # return immediately if no video passed the checks
     if not checked_videos:
         return listed_subtitles
 
     # list subtitles
-    with ProviderPool(**kwargs) as pool:
+    with pool_class(**kwargs) as pool:
         for video in checked_videos:
             logger.info('Listing subtitles for %r', video)
             subtitles = pool.list_subtitles(video, languages - video.subtitle_languages)
@@ -380,28 +447,30 @@ def list_subtitles(videos, languages, **kwargs):
     return listed_subtitles
 
 
-def download_subtitles(subtitles, **kwargs):
+def download_subtitles(subtitles, pool_class=ProviderPool, **kwargs):
     """Download :attr:`~subliminal.subtitle.Subtitle.content` of `subtitles`.
 
-    All other parameters are passed onwards to the :class:`ProviderPool` constructor.
+    All other parameters are passed onwards to the `pool_class` constructor.
 
     :param subtitles: subtitles to download.
     :type subtitles: list of :class:`~subliminal.subtitle.Subtitle`
+    :param pool_class: class to use as provider pool.
+    :type: :class:`ProviderPool`, :class:`AsyncProviderPool` or similar
 
     """
-    with ProviderPool(**kwargs) as pool:
+    with pool_class(**kwargs) as pool:
         for subtitle in subtitles:
             logger.info('Downloading subtitle %r', subtitle)
             pool.download_subtitle(subtitle)
 
 
-def download_best_subtitles(videos, languages, min_score=0, hearing_impaired=False, only_one=False, scores=None,
-                            **kwargs):
+def download_best_subtitles(videos, languages, min_score=0, hearing_impaired=False, only_one=False, compute_score=None,
+                            pool_class=ProviderPool, **kwargs):
     """List and download the best matching subtitles.
 
     The `videos` must pass the `languages` and `undefined` (`only_one`) checks of :func:`check_video`.
 
-    All other parameters are passed onwards to the :class:`ProviderPool` constructor.
+    All other parameters are passed onwards to the `pool_class` constructor.
 
     :param videos: videos to download subtitles for.
     :type videos: set of :class:`~subliminal.video.Video`
@@ -410,7 +479,10 @@ def download_best_subtitles(videos, languages, min_score=0, hearing_impaired=Fal
     :param int min_score: minimum score for a subtitle to be downloaded.
     :param bool hearing_impaired: hearing impaired preference.
     :param bool only_one: download only one subtitle, not one per language.
-    :param dict scores: scores to use, if `None`, the :attr:`~subliminal.video.Video.scores` from the video are used.
+    :param function compute_score: function that takes `subtitle` and `video` as positional arguments,
+        `hearing_impaired` as keyword argument and returns the score.
+    :param pool_class: class to use as provider pool.
+    :type: :class:`ProviderPool`, :class:`AsyncProviderPool` or similar
     :return: downloaded subtitles per video.
     :rtype: dict of :class:`~subliminal.video.Video` to list of :class:`~subliminal.subtitle.Subtitle`
 
@@ -425,18 +497,18 @@ def download_best_subtitles(videos, languages, min_score=0, hearing_impaired=Fal
             continue
         checked_videos.append(video)
 
-    # return immediatly if no video passed the checks
+    # return immediately if no video passed the checks
     if not checked_videos:
         return downloaded_subtitles
 
     # download best subtitles
-    with ProviderPool(**kwargs) as pool:
+    with pool_class(**kwargs) as pool:
         for video in checked_videos:
             logger.info('Downloading best subtitles for %r', video)
             subtitles = pool.download_best_subtitles(pool.list_subtitles(video, languages - video.subtitle_languages),
                                                      video, languages, min_score=min_score,
                                                      hearing_impaired=hearing_impaired, only_one=only_one,
-                                                     scores=scores)
+                                                     compute_score=compute_score)
             logger.info('Downloaded %d subtitle(s)', len(subtitles))
             downloaded_subtitles[video].extend(subtitles)
 

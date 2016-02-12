@@ -547,7 +547,7 @@ def searchProviders(show, episodes, manualSearch=False, downCurQuality=False, ma
                 search_mode = 'sponly'
 
         # skip to next provider if we have no results to process
-        if not len(foundResults[curProvider.name]):
+        if not foundResults[curProvider.name]:
             continue
 
         # Update the cache if a manual search is being runned
@@ -722,7 +722,7 @@ def searchProviders(show, episodes, manualSearch=False, downCurQuality=False, ma
             if curEp in (MULTI_EP_RESULT, SEASON_RESULT):
                 continue
 
-            if not len(foundResults[curProvider.name][curEp]) > 0:
+            if not foundResults[curProvider.name][curEp]:
                 continue
 
             # if all results were rejected move on to the next episode

@@ -52,11 +52,11 @@ from socket import timeout as SocketTimeout
 from sickbeard import logger, classes
 from sickbeard.common import USER_AGENT
 from sickbeard import db
-from sickbeard.notifiers import synoindex_notifier
 from sickrage.helper.common import http_code_description, media_extensions, pretty_file_size, subtitle_extensions, episode_num
 from sickrage.helper.encoding import ek
 from sickrage.helper.exceptions import ex
 from sickrage.show.Show import Show
+from cachecontrol import CacheControl
 from itertools import izip, cycle
 
 import shutil
@@ -249,7 +249,7 @@ def makeDir(path):
         try:
             ek(os.makedirs, path)
             # do the library update for synoindex
-            synoindex_notifier.addFolder(path)
+            sickbeard.notifiers.synoindex_notifier.addFolder(path)
         except OSError:
             return False
     return True
@@ -469,7 +469,7 @@ def make_dirs(path):
                     # use normpath to remove end separator, otherwise checks permissions against itself
                     chmodAsParent(ek(os.path.normpath, sofar))
                     # do the library update for synoindex
-                    synoindex_notifier.addFolder(sofar)
+                    sickbeard.notifiers.synoindex_notifier.addFolder(sofar)
                 except (OSError, IOError) as e:
                     logger.log(u"Failed creating %s : %r" % (sofar, ex(e)), logger.ERROR)
                     return False
@@ -549,7 +549,7 @@ def delete_empty_folders(check_empty_dir, keep_dir=None):
                 # need shutil.rmtree when ignore_items is really implemented
                 ek(os.rmdir, check_empty_dir)
                 # do the library update for synoindex
-                synoindex_notifier.deleteFolder(check_empty_dir)
+                sickbeard.notifiers.synoindex_notifier.deleteFolder(check_empty_dir)
             except OSError as e:
                 logger.log(u"Unable to delete %s. Error: %r" % (check_empty_dir, repr(e)), logger.WARNING)
                 break
@@ -606,7 +606,7 @@ def chmodAsParent(childPath):
     if childPath_mode == childMode:
         return
 
-    childPath_owner = childPathStat.st_uid
+    childPath_owner = childPathStat.st_uid  # pylint: disable=no-member
     user_id = os.geteuid()  # @UndefinedVariable - only available on UNIX
 
     if user_id != 0 and user_id != childPath_owner:
@@ -646,7 +646,7 @@ def fixSetGroupID(childPath):
         if childGID == parentGID:
             return
 
-        childPath_owner = childStat.st_uid
+        childPath_owner = childStat.st_uid  # pylint: disable=no-member
         user_id = os.geteuid()  # @UndefinedVariable - only available on UNIX
 
         if user_id != 0 and user_id != childPath_owner:
@@ -1379,9 +1379,7 @@ def _setUpSession(session, headers):
     """
 
     # request session
-    # Lets try without caching sessions to disk for awhile
-    # cache_dir = sickbeard.CACHE_DIR or _getTempDir()
-    # session = CacheControl(sess=session, cache=caches.FileCache(ek(os.path.join, cache_dir, 'sessions'), use_dir_lock=True), cache_etags=False)
+    session = CacheControl(sess=session, cache_etags=True)
 
     # request session clear residual referer
     # pylint: disable=superfluous-parens
@@ -1611,7 +1609,7 @@ def verify_freespace(src, dest, oldfile=None):
     if hasattr(os, 'statvfs'):  # POSIX
         def disk_usage(path):
             st = ek(os.statvfs, path)
-            free = st.f_bavail * st.f_frsize
+            free = st.f_bavail * st.f_frsize  # pylint: disable=no-member
             return free
 
     elif os.name == 'nt':       # Windows
@@ -1696,8 +1694,8 @@ def isFileLocked(checkfile, writeLockCheck=False):
     if not ek(os.path.exists, checkfile):
         return True
     try:
-        f = io.open(checkfile, 'rb')
-        f.close()
+        f = ek(io.open, checkfile, 'rb')
+        f.close()  # pylint: disable=no-member
     except IOError:
         return True
 
@@ -1727,7 +1725,7 @@ def getDiskSpaceUsage(diskPath=None):
             return pretty_file_size(free_bytes.value)
         else:
             st = ek(os.statvfs, diskPath)
-            return pretty_file_size(st.f_bavail * st.f_frsize)
+            return pretty_file_size(st.f_bavail * st.f_frsize)  # pylint: disable=no-member
     else:
         return False
 
