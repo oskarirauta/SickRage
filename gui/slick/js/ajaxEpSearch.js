@@ -219,6 +219,14 @@ $(document).ready(function () {
             }
         });
 
+         $('.epManualSearch').click(function(event){
+            event.preventDefault();
+
+            selectedEpisode = $(this);
+
+            manualSearch();
+        });
+
         $('#manualSearchModalFailed .btn').click(function(){
             failedDownload = ($(this).text().toLowerCase() === 'yes');
             $("#manualSearchModalQuality").modal('show');
