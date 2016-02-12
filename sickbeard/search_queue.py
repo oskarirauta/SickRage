@@ -200,11 +200,11 @@ class ManualSearchQueueItem(generic_queue.QueueItem):
             elif self.manualSelect is True and searchResult is True:
                     self.success = True
                     self.results = searchResult
-                    ui.notifications.message("We have found downloads for <i>%s</i>" % self.segment.prettyName(),
+                    ui.notifications.message("We have found downloads for %s" % self.segment.prettyName(),
                                              "You will be redirected promptly")
             else:
                 ui.notifications.message('No downloads were found',
-                                         "Couldn't find a download for %s" % self.segment.prettyName())
+                                         "Couldn't find a download for <i>%s</i>" % self.segment.prettyName())
 
                 logger.log(u"Unable to find a download for: [" + self.segment.prettyName() + "]")
 
