@@ -127,6 +127,16 @@ $('#subtitles_dir').fileBrowser({ title: 'Select Subtitles Download Directory' }
                                     </label>
                                 </div>
                                 <div class="field-pair">
+                                    <label class="clearfix" for="subtitles_keep_only_wanted">
+                                        <span class="component-title">Keep only wanted subtitles</span>
+                                        <span class="component-desc">
+                                            <input type="checkbox" name="subtitles_keep_only_wanted" id="subtitles_keep_only_wanted" ${('', 'checked="checked"')[bool(sickbeard.SUBTITLES_KEEP_ONLY_WANTED)]}/>
+                                            <p>Enable to delete unknown language subtitles bundled in releases</p>
+                                            <p>Avoid post-process releases with unknown language subtitles when feature 'postpone if no subs' is enabled</p>
+                                        </span>
+                                    </label>
+                                </div>
+                                <div class="field-pair">
                                     <label class="clearfix" for="embedded_subtitles_all">
                                         <span class="component-title">Embedded Subtitles</span>
                                         <span class="component-desc">
